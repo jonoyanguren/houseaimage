@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# houseaimage
 
-## Getting Started
+Boilerplate Next.js para subir fotos y generar un vídeo con [Higgsfield](https://higgsfield.ai).
 
-First, run the development server:
+## Flujo
+
+1. El usuario arrastra/selecciona varias fotos ([`PhotoDropzone`](src/components/PhotoDropzone.tsx)), puede reordenarlas y quitarlas.
+2. Al pulsar "Generar vídeo", el cliente ([`useVideoGeneration`](src/lib/useVideoGeneration.ts)):
+   - Sube las fotos a `POST /api/upload`, que las guarda en `public/uploads` y devuelve URLs públicas.
+   - Llama a `POST /api/generate` con esas URLs, que crea un job en Higgsfield.
+   - Hace polling a `GET /api/generate/[jobId]` hasta que el job termina, y muestra el vídeo resultante.
+
+## Configuración
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Rellena `HIGGSFIELD_API_KEY` con tu API key de Higgsfield.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## ⚠️ Antes de usar en producción
 
-## Learn More
+- **API de Higgsfield**: el cliente en [`src/lib/higgsfield.ts`](src/lib/higgsfield.ts) usa un endpoint y payload de ejemplo (`POST /videos/generate`, `GET /videos/generate/:id`). Confírmalos contra la documentación oficial de tu cuenta de Higgsfield (rutas, nombres de campos, presets válidos) y ajusta `createVideoJob` / `getVideoJobStatus`.
+- **Almacenamiento de fotos**: [`src/lib/storage.ts`](src/lib/storage.ts) guarda las fotos en el filesystem local (`public/uploads`), lo cual solo funciona en un servidor con disco persistente. Para desplegar en plataformas serverless (Vercel, etc.) sustituye `saveImage` por un proveedor real (S3, Cloudinary, Vercel Blob) — la interfaz ya está aislada para que sea un cambio de un solo archivo.
 
-To learn more about Next.js, take a look at the following resources:
+## Estructura
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/
+  app/
+    page.tsx                     # UI principal
+    api/upload/route.ts          # sube fotos, devuelve URLs
+    api/generate/route.ts        # crea el job de vídeo en Higgsfield
+    api/generate/[jobId]/route.ts # consulta el estado del job
+  components/
+    PhotoDropzone.tsx            # drag & drop + reordenar fotos
+  lib/
+    higgsfield.ts                # cliente de la API de Higgsfield
+    storage.ts                   # guardado de fotos subidas
+    useVideoGeneration.ts        # hook: sube, genera y hace polling
+  types/
+    higgsfield.ts                # tipos compartidos
+```
