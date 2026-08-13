@@ -1,6 +1,6 @@
 ---
 name: video-pipeline
-description: Arquitectura de generación de vídeo de houseaimage — fan-out de un job por foto, polling por clip, reintentos y montaje. Úsala SIEMPRE antes de tocar src/lib/pipeline.ts, compose.ts, jobStore.ts, providers/ o las rutas /api/generate, y cuando haya que depurar clips atascados, lotes en `partial`, orden incorrecto en el vídeo final o errores 404 al sondear un lote. También al añadir estados, reintentos o pasos nuevos al pipeline.
+description: Arquitectura de generación de vídeo de houseaimage — fan-out de un job por foto, polling por clip, reintentos y montaje. Úsala SIEMPRE antes de tocar src/lib/engine/, compose.ts, jobStore/, providers/ o las rutas /api/generate, y cuando haya que depurar clips atascados, lotes en `partial`, orden incorrecto en el vídeo final o errores 404 al sondear un lote. También al añadir estados, reintentos o pasos nuevos al pipeline.
 ---
 
 # El pipeline de generación
@@ -50,17 +50,64 @@ Rómpelos y el vídeo sale mal aunque los tests pasen.
    `Promise.all` sobre 20 fotos es la forma más rápida de comerse un 429, que
    además falla el lote entero en vez de solo ralentizarlo.
 
-## Dónde tocar cada cosa
+## Cómo está partido el motor
+
+`src/lib/engine/` está dividido por responsabilidad, y la división es la que
+evita la clase de bug que ya nos mordió dos veces: **el juicio vive en
+funciones puras y la orquestación solo las ejecuta.**
+
+| Módulo | Responsabilidad |
+| --- | --- |
+| `pipeline.ts` | Orquestación y E/S: abanico, sondeo, reenvío. Nada de criterio. |
+| `transitions.ts` | El único sitio que decide el siguiente estado de un clip. Puro. |
+| `policy.ts` | Las reglas que cuestan dinero: qué merece reintento y cuándo. Puro. |
+| `state.ts` | Estado del lote derivado de sus clips. |
+| `serialize.ts` | Proyección sobre lo que la API puede devolver. |
+
+Importa siempre desde `@/lib/engine`, no de los módulos internos.
+
+**Si añades una regla de decisión, va en `policy` o `transitions`, nunca en
+`pipeline`.** Ese es el criterio: si necesitas un proveedor, un almacén o un
+reloj para probarla, la has puesto en el sitio equivocado.
 
 | Quiero… | Archivo |
 | --- | --- |
-| Cambiar cómo se crean o sondean los jobs | `src/lib/pipeline.ts` |
-| Cambiar cómo se monta el vídeo o el estado del lote | `src/lib/compose.ts` |
+| Cambiar cómo se crean o sondean los jobs | `src/lib/engine/pipeline.ts` |
+| Cambiar cuándo se reintenta o se agota un clip | `src/lib/engine/policy.ts` |
+| Cambiar cómo se monta el vídeo | `src/lib/compose.ts` |
+| Cambiar el estado del lote | `src/lib/engine/state.ts` |
+| Cambiar qué devuelve la API | `src/lib/engine/serialize.ts` |
 | Persistir los lotes de verdad | `src/lib/jobStore/` |
 | Cambiar dónde se guardan las fotos | `src/lib/storage/` |
 | Añadir o corregir un backend | `src/lib/providers/` (ver skill `video-provider`) |
 | Tocar estilos, escenas o prompts | `src/lib/prompts/` (ver skill `video-styles`) |
 | Ajustar límites y concurrencia | `src/lib/config.ts` |
+
+## No todos los fallos merecen reintento
+
+Un fallo lleva un `FailureKind`, y el proveedor es quien lo clasifica porque es
+el único que sabe qué significan sus códigos.
+
+- `invalid_input` y `unauthorized` son **permanentes**: no se reintentan nunca.
+  Reenviar una foto que el proveedor rechazó por formato cuesta exactamente lo
+  mismo que un reintento que sí podría funcionar, y no puede producir nada.
+- El resto son transitorios. `rate_limited` además espera bastante más, porque
+  volver a los quince segundos choca con el mismo muro.
+- Lo desconocido se trata como transitorio: rendirse con un clip recuperable
+  cuesta más que un reintento desperdiciado.
+
+Un fallo al **consultar** el estado no es un render fallido: es casi seguro un
+problema de red con el job todavía vivo, así que se anota y no gasta intento.
+
+## Lo interno no es lo que sale por HTTP
+
+`toPublicBatch` proyecta el lote sobre lo que la API puede devolver. Retiene
+`resolved` (el prompt compuesto), `providerJobId` y el objeto `failure`.
+
+**Si añades un campo al motor, no llega solo al cliente — y es a propósito.**
+Antes de que existiera esta proyección el modelo interno *era* la respuesta, y
+por eso el prompt no se podía ni guardar. Hay un test que falla si el prompt
+vuelve a salir.
 
 ## Estados del lote
 
@@ -76,8 +123,9 @@ en otro sitio.
 
 ## Qué cuenta como terminal
 
-`isSettled` **no** es "completed o failed". Un clip fallido con intentos
-disponibles todavía va a cambiar de estado, así que no está asentado.
+`isSettled` **no** es "completed o failed". Un clip fallido que todavía va a
+reintentarse no está asentado — y si el fallo es permanente, sí lo está aunque
+le queden intentos. Vive en `engine/policy.ts`.
 
 Tratarlo como terminal provocaba que un lote se declarara muerto con un
 reintento pendiente: si el proveedor rechazaba todas las fotos de golpe (rate

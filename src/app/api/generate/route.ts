@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createBatch, ValidationError } from "@/lib/pipeline";
+import { createBatch, toPublicBatch, ValidationError } from "@/lib/engine";
 import type { CreateBatchRequest } from "@/types/video";
 
 /**
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const batch = await createBatch(body.photos, body.options);
-    return NextResponse.json(batch, { status: 201 });
+    return NextResponse.json(toPublicBatch(batch), { status: 201 });
   } catch (err) {
     if (err instanceof ValidationError) {
       return NextResponse.json({ error: err.message }, { status: 400 });

@@ -1,6 +1,6 @@
 "use client";
 
-import type { Clip, ClipStatus } from "@/types/video";
+import type { ClipStatus, PublicClip } from "@/types/video";
 
 const STATUS_LABEL: Record<ClipStatus, string> = {
   queued: "En cola",
@@ -20,7 +20,7 @@ const STATUS_TONE: Record<ClipStatus, string> = {
  * Per-clip progress. Each photo is an independent provider job, so the user
  * sees which scenes are ready instead of one spinner for the whole listing.
  */
-export function ClipProgressList({ clips }: { clips: Clip[] }) {
+export function ClipProgressList({ clips }: { clips: PublicClip[] }) {
   if (clips.length === 0) return null;
 
   const done = clips.filter((c) => c.status === "completed").length;
@@ -106,7 +106,7 @@ export function ClipProgressList({ clips }: { clips: Clip[] }) {
 }
 
 /** Compact one-line summary, for the finished state where the grid is noise. */
-export function ClipSummary({ clips }: { clips: Clip[] }) {
+export function ClipSummary({ clips }: { clips: PublicClip[] }) {
   const failed = clips.filter((c) => c.status === "failed");
   if (clips.length === 0) return null;
 

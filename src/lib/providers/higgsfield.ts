@@ -5,6 +5,7 @@ import type {
   VideoProvider,
 } from "@/types/video";
 import { DEFAULT_CLIP_SECONDS } from "@/lib/config";
+import { ProviderError, kindFromStatus } from "@/lib/providers/errors";
 
 /**
  * Higgsfield image-to-video provider: one photo in, one short clip out.
@@ -25,7 +26,9 @@ const REQUEST_TIMEOUT_MS = 30_000;
 function apiKey(): string {
   const key = process.env.HIGGSFIELD_API_KEY;
   if (!key) {
-    throw new Error(
+    // Permanent by construction: no amount of retrying conjures a key.
+    throw new ProviderError(
+      "unauthorized",
       "HIGGSFIELD_API_KEY is not set. Add it to .env.local (see .env.example), " +
         "or unset VIDEO_PROVIDER to fall back to the simulated provider."
     );
@@ -46,7 +49,14 @@ async function higgsfieldFetch(path: string, init: RequestInit) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`Higgsfield API error ${res.status}: ${body.slice(0, 500)}`);
+    // Classified here because only this module knows what these codes mean.
+    // A 4xx is the provider rejecting the photo and will never succeed; a 429
+    // or a 5xx is worth coming back to.
+    throw new ProviderError(
+      kindFromStatus(res.status),
+      `Higgsfield API error ${res.status}: ${body.slice(0, 500)}`,
+      res.status
+    );
   }
 
   return res.json();
@@ -125,11 +135,20 @@ export const higgsfieldProvider: VideoProvider = {
       status,
       progress: typeof data.progress === "number" ? data.progress : undefined,
       videoUrl,
-      error:
-        data.error ??
-        (missingUrl
-          ? "Higgsfield reported the job as completed but returned no video URL"
-          : undefined),
+      failure:
+        status === "failed"
+          ? {
+              // A render that failed on the provider's side, or a broken
+              // contract — both worth one more go.
+              kind: "provider_error",
+              message:
+                data.error ??
+                (missingUrl
+                  ? "Higgsfield dio el clip por terminado pero no devolvió vídeo"
+                  : "La generación falló en el proveedor"),
+              at: Date.now(),
+            }
+          : undefined,
     };
   },
 };

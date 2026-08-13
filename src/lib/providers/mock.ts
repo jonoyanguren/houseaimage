@@ -81,7 +81,11 @@ export const mockProvider: VideoProvider = {
       return {
         providerJobId,
         status: "failed",
-        error: `Not a simulated job id: ${providerJobId}`,
+        failure: {
+          kind: "invalid_input",
+          message: `No es un id de trabajo simulado: ${providerJobId}`,
+          at: Date.now(),
+        },
       };
     }
 
@@ -94,7 +98,13 @@ export const mockProvider: VideoProvider = {
         return {
           providerJobId,
           status: "failed",
-          error: "Simulated render failure (MOCK_FAILURE_RATE)",
+          // Transient on purpose, so MOCK_FAILURE_RATE exercises the retry
+          // path rather than short-circuiting it as permanent.
+          failure: {
+            kind: "provider_error",
+            message: "Fallo de render simulado (MOCK_FAILURE_RATE)",
+            at: Date.now(),
+          },
           simulated: true,
         };
       }

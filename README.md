@@ -122,8 +122,14 @@ src/
       properties.ts                 # catálogo de tipos de inmueble
       scenes.ts                     # catálogo de escenas
       index.ts                      # resolutor de los tres ejes → prompt
-    pipeline.ts                     # fan-out, polling, reintentos
-    compose.ts                      # montaje y estado derivado del lote
+    engine/                         # el motor de generación
+      index.ts                      # superficie pública
+      pipeline.ts                   # orquestación: abanico, sondeo, reenvío
+      transitions.ts                # decide el siguiente estado de un clip
+      policy.ts                     # qué merece reintento y cuándo
+      state.ts                      # estado del lote
+      serialize.ts                  # qué puede devolver la API
+    compose.ts                      # montaje del vídeo
     providers/                      # backends de vídeo
       index.ts                      # selección de proveedor
       higgsfield.ts                 # proveedor real
@@ -151,9 +157,12 @@ npm test
 ```
 
 Cubren la lógica pura del backend: composición de prompts, integridad del
-catálogo, estado derivado del lote, montaje, concurrencia y el pipeline
-completo contra un proveedor de prueba. No necesitan navegador, red ni
-credenciales.
+catálogo, política de reintentos, estado derivado del lote, montaje,
+concurrencia, la proyección pública y el motor completo contra un proveedor de
+prueba. No necesitan navegador, red ni credenciales.
+
+Hay dos que conviene no borrar: uno comprueba que el prompt compuesto **nunca**
+sale por la API, y otro que un fallo permanente no se reintenta.
 
 ## Configuración
 

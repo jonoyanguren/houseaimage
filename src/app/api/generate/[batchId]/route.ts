@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { refreshBatch, retryFailedClips } from "@/lib/pipeline";
+import { refreshBatch, retryFailedClips, toPublicBatch } from "@/lib/engine";
 
 const NOT_FOUND = { error: "Unknown or expired batch" };
 
@@ -23,7 +23,7 @@ export async function GET(
   try {
     const batch = await refreshBatch(batchId);
     return batch
-      ? NextResponse.json(batch)
+      ? NextResponse.json(toPublicBatch(batch))
       : NextResponse.json(NOT_FOUND, { status: 404 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -44,7 +44,7 @@ export async function POST(
   try {
     const batch = await retryFailedClips(batchId);
     return batch
-      ? NextResponse.json(batch)
+      ? NextResponse.json(toPublicBatch(batch))
       : NextResponse.json(NOT_FOUND, { status: 404 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

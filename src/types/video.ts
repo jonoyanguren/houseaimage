@@ -11,6 +11,41 @@
 export type ClipStatus = "queued" | "processing" | "completed" | "failed";
 
 /**
+ * Why a clip failed, classified so the engine can decide whether retrying is
+ * worth anything.
+ *
+ * This distinction is money: re-submitting a photo the provider rejected for
+ * being an unsupported format costs the same as re-submitting one that hit a
+ * rate limit, and only the second one can ever succeed. Treating every failure
+ * the same burns attempts — and the customer's credits — on work that is
+ * guaranteed to fail again.
+ */
+export type FailureKind =
+  /** Provider is throttling us. Transient, and deserves a longer wait. */
+  | "rate_limited"
+  /** Provider broke on its side (5xx). Transient. */
+  | "provider_error"
+  /** We could not reach the provider at all. Transient. */
+  | "network"
+  /** The job never finished in time. Transient. */
+  | "timeout"
+  /** The provider rejected the input (4xx). Permanent — never retry. */
+  | "invalid_input"
+  /** Bad or missing credentials. Permanent, and a configuration problem. */
+  | "unauthorized"
+  /** Unclassified. Treated as transient, because giving up costs more. */
+  | "unknown";
+
+export interface ClipFailure {
+  kind: FailureKind;
+  /** Human-readable, safe to show the user. */
+  message: string;
+  /** Provider HTTP status, when there was one. */
+  status?: number;
+  at: number;
+}
+
+/**
  * Aggregate state of a batch.
  * - `processing`: at least one clip is still queued/processing.
  * - `completed`: every clip finished successfully.
@@ -140,7 +175,8 @@ export interface ProviderClipStatus extends ProviderClipJob {
   /** 0-100 when the provider reports it. */
   progress?: number;
   videoUrl?: string;
-  error?: string;
+  /** Set when `status` is `failed`. The provider classifies its own errors. */
+  failure?: ClipFailure;
   /**
    * True when the clip was produced by the simulated provider, so the UI can
    * label it instead of pretending a real render happened.
@@ -172,8 +208,18 @@ export interface Clip {
   status: ClipStatus;
   progress?: number;
   videoUrl?: string;
-  error?: string;
+  /** Set while `status` is `failed`, cleared when a retry re-queues the clip. */
+  failure?: ClipFailure;
   simulated?: boolean;
+  /**
+   * The exact prompt this clip was rendered with.
+   *
+   * Kept so a render is reproducible and debuggable — "what did we actually
+   * ask for?" is the first question when a clip comes out wrong. Stripped
+   * before the batch leaves the API (see `toPublicBatch`); the prompt craft is
+   * the product and has no business in the browser.
+   */
+  resolved: ResolvedPrompt;
   /** How many times this clip has been re-submitted after a failure. */
   attempts: number;
   /**
@@ -220,6 +266,29 @@ export interface Batch {
   /** Present once every clip has settled and at least one succeeded. */
   reel?: Reel;
 }
+
+/**
+ * What a batch looks like once it leaves the API.
+ *
+ * The internal `Batch` is the engine's own model and carries things the
+ * browser must not see — above all `clip.resolved`, the composed prompt. Until
+ * this projection existed the API response *was* the internal model, so any
+ * field added to the engine leaked straight to the client. Everything that
+ * goes out passes through `toPublicBatch`.
+ */
+export type PublicClip = Omit<Clip, "resolved" | "providerJobId" | "failure"> & {
+  /** Flattened so the UI has one thing to render, not a shape to interpret. */
+  error?: string;
+  /** Whether the engine will try this clip again on its own. */
+  willRetry: boolean;
+};
+
+export type PublicBatch = Omit<Batch, "clips" | "options"> & {
+  clips: PublicClip[];
+  /** Only the parts of the options the UI actually needs back. */
+  styleId?: StyleId;
+  propertyType?: PropertyType;
+};
 
 /** Request body of `POST /api/generate`. */
 export interface CreateBatchRequest {

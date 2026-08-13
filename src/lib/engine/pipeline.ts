@@ -3,20 +3,21 @@ import type {
   Clip,
   ClipOptions,
   PhotoInput,
+  ProviderClipStatus,
   VideoProvider,
 } from "@/types/video";
-import { getVideoProvider } from "@/lib/providers";
+import { getVideoProvider, toClipFailure } from "@/lib/providers";
 import { mapWithConcurrency } from "@/lib/concurrency";
-import { isAwaitingRetry, isSettled, withDerivedState } from "@/lib/compose";
+import { withDerivedState } from "@/lib/compose";
+import { isSettled } from "@/lib/engine/state";
+import { adoptRetry, nextClipState, onPollError } from "@/lib/engine/transitions";
 import { getBatch, saveBatch, updateBatch } from "@/lib/jobStore";
 import { withLock } from "@/lib/lock";
 import { buildClipPrompt, isSceneType } from "@/lib/prompts";
 import {
-  CLIP_TIMEOUT_MS,
   CREATE_CONCURRENCY,
   MAX_PHOTOS_PER_BATCH,
   POLL_CONCURRENCY,
-  RETRY_BACKOFF_MS,
 } from "@/lib/config";
 
 /**
@@ -81,13 +82,15 @@ async function submitClip(
     extra: options?.prompt,
   });
 
+  const now = Date.now();
   const base = {
     clipId,
     index,
     imageUrl: photo.imageUrl,
     sceneType: resolved.sceneType,
+    resolved,
     attempts,
-    submittedAt: Date.now(),
+    submittedAt: now,
   };
 
   try {
@@ -98,12 +101,13 @@ async function submitClip(
     });
     return { ...base, providerJobId: job.providerJobId, status: job.status };
   } catch (err) {
-    // One photo failing to enqueue must not sink the other nine.
+    // One photo failing to enqueue must not sink the other nine. The provider
+    // classifies its own errors, so a permanently bad photo is not retried.
     return {
       ...base,
       providerJobId: "",
       status: "failed",
-      error: err instanceof Error ? err.message : "Could not create the provider job",
+      failure: toClipFailure(err, now),
     };
   }
 }
@@ -136,74 +140,41 @@ export async function createBatch(
   return saveBatch(withDerivedState(batch, clips));
 }
 
-/** Wait before attempt N, doubling each time so a rate limit gets room. */
-function backoffFor(attempts: number): number {
-  return RETRY_BACKOFF_MS * 2 ** (attempts - 1);
-}
-
-/** Poll one clip, time it out if it hangs, and re-submit it when it is due. */
+/**
+ * Advance one clip: read the provider, ask `transitions` what that means, and
+ * carry out whatever it decided.
+ *
+ * All the judgement — timeouts, permanence, backoff — lives in
+ * `engine/policy` and `engine/transitions`. This function only performs I/O.
+ */
 async function refreshClip(
   provider: VideoProvider,
   clip: Clip,
   options: ClipOptions | undefined
 ): Promise<Clip> {
-  let next = clip;
+  const now = Date.now();
 
+  let reading: ProviderClipStatus | undefined;
   if (clip.providerJobId) {
     try {
-      const status = await provider.getClipJobStatus(clip.providerJobId);
-      next = {
-        ...clip,
-        status: status.status,
-        progress: status.progress,
-        videoUrl: status.videoUrl,
-        error: status.error,
-        simulated: status.simulated,
-      };
+      reading = await provider.getClipJobStatus(clip.providerJobId);
     } catch (err) {
-      // A failed status call is a transient network problem, not a failed
-      // render — leave the clip as it was so the next poll can recover.
-      return {
-        ...clip,
-        error: err instanceof Error ? err.message : "Could not read the job status",
-      };
+      return onPollError(clip, err, now).clip;
     }
   }
 
-  // A job the provider never settles would otherwise keep the batch polling
-  // until the TTL evicted it, and the user would be told it "expired".
-  if (
-    next.status !== "completed" &&
-    next.status !== "failed" &&
-    Date.now() - next.submittedAt > CLIP_TIMEOUT_MS
-  ) {
-    next = {
-      ...next,
-      status: "failed",
-      error: `The provider did not finish this clip within ${Math.round(
-        CLIP_TIMEOUT_MS / 60_000
-      )} minutes`,
-    };
-  }
+  const decision = nextClipState(clip, reading, now);
+  if (decision.type === "keep") return decision.clip;
 
-  if (isAwaitingRetry(next)) {
-    // Retrying instantly walks straight back into whatever rate limit caused
-    // the failure, spending the last attempt for nothing. Leave it pending and
-    // let a later poll pick it up.
-    if (Date.now() - next.submittedAt < backoffFor(next.attempts)) return next;
+  const submitted = await submitClip(
+    provider,
+    { imageUrl: decision.clip.imageUrl, sceneType: decision.clip.sceneType },
+    decision.clip.index,
+    options,
+    decision.clip.attempts + 1
+  );
 
-    const retried = await submitClip(
-      provider,
-      { imageUrl: next.imageUrl, sceneType: next.sceneType },
-      next.index,
-      options,
-      next.attempts + 1
-    );
-    // Keep the clip's identity across retries so the UI doesn't remount it.
-    return { ...retried, clipId: next.clipId };
-  }
-
-  return next;
+  return adoptRetry(decision.clip, submitted);
 }
 
 /**

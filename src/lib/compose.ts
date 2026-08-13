@@ -1,12 +1,6 @@
-import type {
-  Batch,
-  BatchStatus,
-  Clip,
-  ClipOptions,
-  Reel,
-  ReelSegment,
-} from "@/types/video";
-import { DEFAULT_CLIP_SECONDS, MAX_CLIP_ATTEMPTS } from "@/lib/config";
+import type { Batch, Clip, ClipOptions, Reel, ReelSegment } from "@/types/video";
+import { deriveBatchStatus, isSettled, isUsable } from "@/lib/engine/state";
+import { DEFAULT_CLIP_SECONDS } from "@/lib/config";
 import { getStyle } from "@/lib/prompts";
 
 /**
@@ -23,50 +17,6 @@ import { getStyle } from "@/lib/prompts";
  * and `strategy: "server-side-stitch"`, and the client will offer the file
  * instead of the playlist. Nothing else needs to change.
  */
-
-/**
- * True once the clip can no longer change state.
- *
- * A failed clip is **not** settled while it still has automatic attempts left:
- * the next poll will re-submit it. Treating `failed` alone as terminal made a
- * batch announce itself dead with a retry still pending — if the provider
- * rejected every photo at once (a rate limit, a brief outage), the whole batch
- * reported `failed` on creation and any client that trusted that status gave
- * up on work that was about to recover.
- */
-export function isSettled(clip: Clip): boolean {
-  if (clip.status === "completed") return true;
-  return clip.status === "failed" && clip.attempts >= MAX_CLIP_ATTEMPTS;
-}
-
-/** True while the clip is waiting to be re-submitted after a failure. */
-export function isAwaitingRetry(clip: Clip): boolean {
-  return clip.status === "failed" && clip.attempts < MAX_CLIP_ATTEMPTS;
-}
-
-/** A clip that actually contributes footage to the reel. */
-function isUsable(clip: Clip): boolean {
-  // Simulated clips have no videoUrl by design but still occupy a slot in the
-  // timeline, so the montage can be demoed without credentials.
-  return clip.status === "completed" && (Boolean(clip.videoUrl) || Boolean(clip.simulated));
-}
-
-/**
- * Derive batch status from its clips.
- *
- * `partial` matters: a listing with one failed photo should still produce a
- * reel from the other nine rather than throwing the batch away.
- */
-export function deriveBatchStatus(clips: Clip[]): BatchStatus {
-  if (clips.length === 0) return "failed";
-  if (!clips.every(isSettled)) return "processing";
-
-  const usable = clips.filter(isUsable).length;
-  if (usable === 0) return "failed";
-  if (usable === clips.length) return "completed";
-
-  return "partial";
-}
 
 /**
  * Build the reel from whichever clips succeeded, in the user's chosen order.

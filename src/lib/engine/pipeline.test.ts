@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CreateClipInput, VideoProvider } from "@/types/video";
+import type { Clip, CreateClipInput, VideoProvider } from "@/types/video";
 import { CLIP_TIMEOUT_MS, RETRY_BACKOFF_MS } from "@/lib/config";
+import { ProviderError } from "@/lib/providers/errors";
 
 /**
  * A clock we control, so the retry backoff and the stuck-job timeout can be
@@ -21,6 +22,10 @@ const control = {
   failOnUrls: new Set<string>(),
   /** Simulates the provider rejecting everything at once — a rate limit. */
   failAllCreates: false,
+  /** A specific classified error to reject job creation with. */
+  rejectWith: undefined as Error | undefined,
+  /** Makes the status call throw, simulating a network blip. */
+  throwOnPoll: false,
   statuses: new Map<string, "queued" | "processing" | "completed" | "failed">(),
   created: [] as CreateClipInput[],
   jobSeq: 0,
@@ -30,12 +35,14 @@ const stubProvider: VideoProvider = {
   name: "stub",
   async createClipJob(input) {
     control.created.push(input);
+    if (control.rejectWith) throw control.rejectWith;
     if (control.failAllCreates || control.failOnUrls.has(input.imageUrl)) {
       throw new Error("provider refused the job");
     }
     return { providerJobId: `job-${++control.jobSeq}`, status: "queued" };
   },
   async getClipJobStatus(providerJobId) {
+    if (control.throwOnPoll) throw new Error("connection reset");
     const status = control.statuses.get(providerJobId) ?? "processing";
     return {
       providerJobId,
@@ -45,17 +52,22 @@ const stubProvider: VideoProvider = {
   },
 };
 
-vi.mock("@/lib/providers", () => ({
+// Only the provider *selection* is replaced. Mocking the whole module would
+// also stub out the error classifier the pipeline relies on.
+vi.mock("@/lib/providers", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/providers")>()),
   getVideoProvider: () => stubProvider,
 }));
 
 const { createBatch, refreshBatch, retryFailedClips, ValidationError } = await import(
-  "@/lib/pipeline"
+  "@/lib/engine/pipeline"
 );
 
 beforeEach(() => {
   control.failOnUrls.clear();
   control.failAllCreates = false;
+  control.rejectWith = undefined;
+  control.throwOnPoll = false;
   control.statuses.clear();
   control.created = [];
   control.jobSeq = 0;
@@ -76,8 +88,8 @@ describe("createBatch — fan-out", () => {
   it("indexes clips by the user's photo order", async () => {
     const batch = await createBatch([photo(1), photo(2), photo(3)]);
 
-    expect(batch.clips.map((c) => c.index)).toEqual([0, 1, 2]);
-    expect(batch.clips.map((c) => c.imageUrl)).toEqual([
+    expect(batch.clips.map((c: Clip) => c.index)).toEqual([0, 1, 2]);
+    expect(batch.clips.map((c: Clip) => c.imageUrl)).toEqual([
       "https://example.test/1.jpg",
       "https://example.test/2.jpg",
       "https://example.test/3.jpg",
@@ -105,9 +117,9 @@ describe("createBatch — fan-out", () => {
 
     const batch = await createBatch([photo(1), photo(2), photo(3)]);
 
-    expect(batch.clips.map((c) => c.status)).toEqual(["queued", "failed", "queued"]);
+    expect(batch.clips.map((c: Clip) => c.status)).toEqual(["queued", "failed", "queued"]);
     expect(batch.status).toBe("processing");
-    expect(batch.clips[1].error).toContain("provider refused");
+    expect(batch.clips[1].failure?.message).toContain("provider refused");
   });
 
   it("starts every clip on its first attempt", async () => {
@@ -156,7 +168,7 @@ describe("refreshBatch", () => {
 
   it("completes the batch and composes a reel once every clip lands", async () => {
     const batch = await createBatch([photo(1), photo(2)]);
-    batch.clips.forEach((c) => control.statuses.set(c.providerJobId, "completed"));
+    batch.clips.forEach((c: Clip) => control.statuses.set(c.providerJobId, "completed"));
 
     const refreshed = await refreshBatch(batch.batchId);
 
@@ -194,8 +206,8 @@ describe("refreshBatch", () => {
     const batch = await createBatch([photo(1), photo(2)]);
     control.failAllCreates = false;
 
-    expect(batch.clips.every((c) => c.status === "failed")).toBe(true);
-    expect(batch.clips.every((c) => c.attempts === 1)).toBe(true);
+    expect(batch.clips.every((c: Clip) => c.status === "failed")).toBe(true);
+    expect(batch.clips.every((c: Clip) => c.attempts === 1)).toBe(true);
     expect(batch.status).toBe("processing");
   });
 
@@ -239,7 +251,8 @@ describe("refreshBatch", () => {
     const dead = await refreshBatch(batch.batchId); // times out, budget spent
 
     expect(dead?.clips[0].status).toBe("failed");
-    expect(dead?.clips[0].error).toMatch(/did not finish/i);
+    expect(dead?.clips[0].failure?.kind).toBe("timeout");
+    expect(dead?.clips[0].failure?.message).toMatch(/no terminó/i);
     // The user is told the render hung, not that the batch mysteriously expired.
     expect(dead?.status).toBe("failed");
   });
@@ -285,6 +298,54 @@ describe("refreshBatch", () => {
     expect(current.status).toBe("partial");
     expect(current.reel?.segments).toHaveLength(1);
     expect(current.reel?.segments[0].index).toBe(0);
+  });
+});
+
+describe("failure classification", () => {
+  it("does not pay to retry a photo the provider rejected outright", async () => {
+    // A 4xx means the input is unusable; re-sending it bills the customer
+    // again for a clip that cannot exist.
+    control.rejectWith = new ProviderError("invalid_input", "unsupported image", 415);
+    const batch = await createBatch([photo(1)]);
+    control.rejectWith = undefined;
+
+    expect(batch.clips[0].failure?.kind).toBe("invalid_input");
+    expect(batch.status).toBe("failed"); // terminal immediately
+
+    const createdBefore = control.created.length;
+    await pollAfterBackoff(batch.batchId);
+
+    expect(control.created).toHaveLength(createdBefore);
+  });
+
+  it("does retry a rate limit, which is only temporary", async () => {
+    control.rejectWith = new ProviderError("rate_limited", "slow down", 429);
+    const batch = await createBatch([photo(1)]);
+    control.rejectWith = undefined;
+
+    expect(batch.clips[0].failure?.kind).toBe("rate_limited");
+    expect(batch.status).toBe("processing");
+
+    const createdBefore = control.created.length;
+    // Rate limits get a longer wait than an ordinary failure.
+    advance(RETRY_BACKOFF_MS * 64);
+    await refreshBatch(batch.batchId);
+
+    expect(control.created).toHaveLength(createdBefore + 1);
+  });
+
+  it("keeps a clip running when the status call itself fails", async () => {
+    // A network blip reading the status is not a failed render — spending an
+    // attempt on it would throw away a job that is very likely still going.
+    const batch = await createBatch([photo(1)]);
+    control.throwOnPoll = true;
+
+    const after = await refreshBatch(batch.batchId);
+
+    expect(after?.clips[0].status).toBe("queued");
+    expect(after?.clips[0].attempts).toBe(1);
+    expect(after?.clips[0].failure?.kind).toBe("network");
+    control.throwOnPoll = false;
   });
 });
 

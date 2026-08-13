@@ -1,73 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Clip, ClipStatus } from "@/types/video";
-import { composeReel, deriveBatchStatus, isAwaitingRetry, isSettled } from "@/lib/compose";
-import { MAX_CLIP_ATTEMPTS } from "@/lib/config";
-
-/**
- * Failed clips default to an exhausted attempt budget, so they are genuinely
- * terminal. A failure with attempts left is a different state — the batch is
- * still running — and the tests that care about it say so explicitly.
- */
-function clip(index: number, status: ClipStatus, extra: Partial<Clip> = {}): Clip {
-  return {
-    clipId: `clip-${index}`,
-    index,
-    imageUrl: `https://example.test/${index}.jpg`,
-    sceneType: "generico",
-    providerJobId: `job-${index}`,
-    status,
-    attempts: status === "failed" ? MAX_CLIP_ATTEMPTS : 1,
-    submittedAt: 0,
-    videoUrl: status === "completed" ? `https://example.test/${index}.mp4` : undefined,
-    ...extra,
-  };
-}
-
-describe("deriveBatchStatus", () => {
-  it("stays processing while any clip is unsettled", () => {
-    expect(deriveBatchStatus([clip(0, "completed"), clip(1, "processing")])).toBe(
-      "processing"
-    );
-    expect(deriveBatchStatus([clip(0, "queued")])).toBe("processing");
-  });
-
-  it("stays processing when every clip failed but retries remain", () => {
-    // The provider rejecting a whole batch at once — a rate limit, a brief
-    // outage — must not be reported as a dead batch.
-    const rejected = [clip(0, "failed", { attempts: 1 }), clip(1, "failed", { attempts: 1 })];
-
-    expect(deriveBatchStatus(rejected)).toBe("processing");
-  });
-
-  it("is completed only when every clip succeeded", () => {
-    expect(deriveBatchStatus([clip(0, "completed"), clip(1, "completed")])).toBe(
-      "completed"
-    );
-  });
-
-  it("is partial when some succeeded and some failed", () => {
-    // The whole point: one bad photo out of ten must not lose the other nine.
-    expect(deriveBatchStatus([clip(0, "completed"), clip(1, "failed")])).toBe(
-      "partial"
-    );
-  });
-
-  it("is failed only when nothing usable survived", () => {
-    expect(deriveBatchStatus([clip(0, "failed"), clip(1, "failed")])).toBe("failed");
-    expect(deriveBatchStatus([])).toBe("failed");
-  });
-
-  it("treats a completed clip with no video as unusable", () => {
-    // A provider contract violation must not leave a silent gap in the reel.
-    const broken = clip(0, "completed", { videoUrl: undefined });
-    expect(deriveBatchStatus([broken])).toBe("failed");
-  });
-
-  it("counts a simulated clip as usable despite having no video", () => {
-    const simulated = clip(0, "completed", { videoUrl: undefined, simulated: true });
-    expect(deriveBatchStatus([simulated])).toBe("completed");
-  });
-});
+import { composeReel } from "@/lib/compose";
+import { makeClip as clip } from "@/lib/engine/fixtures";
 
 describe("composeReel", () => {
   it("orders segments by index, not by completion order", () => {
@@ -131,30 +64,5 @@ describe("composeReel", () => {
 
     expect(reel?.strategy).toBe("sequential-playlist");
     expect(reel?.url).toBeUndefined();
-  });
-});
-
-describe("isSettled", () => {
-  it("treats only terminal states as settled", () => {
-    expect(isSettled(clip(0, "completed"))).toBe(true);
-    expect(isSettled(clip(0, "failed"))).toBe(true);
-    expect(isSettled(clip(0, "queued"))).toBe(false);
-    expect(isSettled(clip(0, "processing"))).toBe(false);
-  });
-
-  it("does not consider a failure settled while a retry is pending", () => {
-    // Otherwise the batch announces itself dead with work still to come.
-    const retryable = clip(0, "failed", { attempts: 1 });
-
-    expect(MAX_CLIP_ATTEMPTS).toBeGreaterThan(1);
-    expect(isSettled(retryable)).toBe(false);
-    expect(isAwaitingRetry(retryable)).toBe(true);
-  });
-
-  it("stops awaiting a retry once the budget is spent", () => {
-    const exhausted = clip(0, "failed", { attempts: MAX_CLIP_ATTEMPTS });
-
-    expect(isAwaitingRetry(exhausted)).toBe(false);
-    expect(isSettled(exhausted)).toBe(true);
   });
 });

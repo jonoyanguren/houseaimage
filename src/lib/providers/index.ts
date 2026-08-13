@@ -2,6 +2,8 @@ import type { VideoProvider } from "@/types/video";
 import { higgsfieldProvider } from "@/lib/providers/higgsfield";
 import { mockProvider } from "@/lib/providers/mock";
 
+export { ProviderError, kindFromStatus, toClipFailure } from "@/lib/providers/errors";
+
 /**
  * Provider selection.
  *

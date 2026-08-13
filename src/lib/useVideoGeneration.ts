@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PhotoItem } from "@/components/PhotoDropzone";
-import type { Batch, ClipOptions } from "@/types/video";
+import type { ClipOptions, PublicBatch } from "@/types/video";
 
 interface State {
   stage: "idle" | "uploading" | "generating" | "done" | "error";
-  batch?: Batch;
+  batch?: PublicBatch;
   error?: string;
 }
 
@@ -54,7 +54,7 @@ export function useVideoGeneration() {
 
         if (!res.ok) throw new Error(data.error ?? "Error consultando el estado");
 
-        const batch = data as Batch;
+        const batch = data as PublicBatch;
 
         if (batch.status === "processing") {
           setState({ stage: "generating", batch });
