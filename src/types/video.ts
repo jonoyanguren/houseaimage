@@ -20,21 +20,93 @@ export type ClipStatus = "queued" | "processing" | "completed" | "failed";
  */
 export type BatchStatus = "processing" | "completed" | "partial" | "failed";
 
+/** Treatment applied to a whole reel. See `src/lib/prompts/styles.ts`. */
+export type StyleId =
+  | "cinematografico"
+  | "dron"
+  | "dinamico"
+  | "tour"
+  | "editorial"
+  | "lifestyle";
+
+/** What a given photo shows. See `src/lib/prompts/scenes.ts`. */
+export type SceneType =
+  | "fachada"
+  | "salon"
+  | "cocina"
+  | "dormitorio"
+  | "bano"
+  | "terraza"
+  | "piscina"
+  | "vistas"
+  | "jardin"
+  | "distribuidor"
+  | "detalle"
+  | "comunes"
+  | "generico";
+
+/**
+ * A style preset. Spanish fields are shown to the user; `base`, `negative` and
+ * `sceneOverrides` are sent to the model and stay in English.
+ */
+export interface StylePreset {
+  id: StyleId;
+  label: string;
+  tagline: string;
+  bestFor: readonly string[];
+  aspectRatio: string;
+  durationSeconds: number;
+  base: string;
+  negative: string;
+  /** Style-specific replacement for a scene's default motion. */
+  sceneOverrides?: Partial<Record<SceneType, string>>;
+}
+
+/** A scene profile: what the photo shows and how the camera should move. */
+export interface SceneProfile {
+  id: SceneType;
+  label: string;
+  hint: string;
+  /** Position in the recommended viewing order; lower comes first. */
+  order: number;
+  motion: string;
+}
+
+/** Output of the prompt resolver, ready to hand to a provider. */
+export interface ResolvedPrompt {
+  prompt: string;
+  negative: string;
+  styleId: StyleId;
+  sceneType: SceneType;
+  aspectRatio: string;
+  durationSeconds: number;
+}
+
 export interface ClipOptions {
   /** Provider motion/model preset id, e.g. "dop-1". */
   preset?: string;
-  /** Text prompt guiding motion/style for every clip in the batch. */
+  /** Chosen style. Falls back to the default preset when absent or unknown. */
+  styleId?: StyleId;
+  /** Free-text nuance from the user, folded into every clip's prompt. */
   prompt?: string;
-  /** Output aspect ratio, e.g. "9:16", "16:9", "1:1". */
+  /** Overrides the style's aspect ratio when set. */
   aspectRatio?: string;
-  /** Requested clip length. Providers clamp this to their supported range. */
+  /** Overrides the style's clip length when set. */
   durationSeconds?: number;
 }
 
 /** One photo's worth of work handed to a provider. */
 export interface CreateClipInput {
   imageUrl: string;
+  /** Fully resolved prompt — providers never build prompts themselves. */
+  resolved: ResolvedPrompt;
   options?: ClipOptions;
+}
+
+/** A photo as submitted by the client, with its scene classification. */
+export interface PhotoInput {
+  imageUrl: string;
+  sceneType?: SceneType;
 }
 
 export interface ProviderClipJob {
@@ -73,6 +145,8 @@ export interface Clip {
   /** Position in the final reel — the order the user arranged the photos in. */
   index: number;
   imageUrl: string;
+  /** What this photo shows, driving its camera movement. */
+  sceneType: SceneType;
   providerJobId: string;
   status: ClipStatus;
   progress?: number;
@@ -88,6 +162,7 @@ export interface ReelSegment {
   clipId: string;
   index: number;
   imageUrl: string;
+  sceneType: SceneType;
   videoUrl?: string;
   simulated?: boolean;
   durationSeconds: number;
@@ -122,7 +197,7 @@ export interface Batch {
 
 /** Request body of `POST /api/generate`. */
 export interface CreateBatchRequest {
-  /** Publicly reachable image URLs, in the order they should appear. */
-  imageUrls: string[];
+  /** Publicly reachable photos, in the order they should appear. */
+  photos: PhotoInput[];
   options?: ClipOptions;
 }

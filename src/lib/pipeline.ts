@@ -1,8 +1,15 @@
-import type { Batch, Clip, ClipOptions, VideoProvider } from "@/types/video";
+import type {
+  Batch,
+  Clip,
+  ClipOptions,
+  PhotoInput,
+  VideoProvider,
+} from "@/types/video";
 import { getVideoProvider } from "@/lib/providers";
 import { mapWithConcurrency } from "@/lib/concurrency";
 import { isSettled, withDerivedState } from "@/lib/compose";
 import { saveBatch, updateBatch } from "@/lib/jobStore";
+import { buildClipPrompt, isSceneType } from "@/lib/prompts";
 import {
   CREATE_CONCURRENCY,
   MAX_CLIP_ATTEMPTS,
@@ -24,73 +31,93 @@ import {
 
 export class ValidationError extends Error {}
 
-function validate(imageUrls: string[]) {
-  if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
-    throw new ValidationError("imageUrls is required and must not be empty");
+function validate(photos: PhotoInput[]) {
+  if (!Array.isArray(photos) || photos.length === 0) {
+    throw new ValidationError("photos is required and must not be empty");
   }
 
-  if (imageUrls.length > MAX_PHOTOS_PER_BATCH) {
+  if (photos.length > MAX_PHOTOS_PER_BATCH) {
     throw new ValidationError(
-      `Too many photos: ${imageUrls.length}. The limit is ${MAX_PHOTOS_PER_BATCH} ` +
+      `Too many photos: ${photos.length}. The limit is ${MAX_PHOTOS_PER_BATCH} ` +
         "(each photo becomes its own provider job)."
     );
   }
 
-  for (const url of imageUrls) {
-    if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {
-      throw new ValidationError(`Not a usable image URL: ${String(url)}`);
+  for (const photo of photos) {
+    if (typeof photo?.imageUrl !== "string" || !/^https?:\/\//i.test(photo.imageUrl)) {
+      throw new ValidationError(
+        `Not a usable image URL: ${String(photo?.imageUrl)}`
+      );
+    }
+    // An unknown scene is not worth rejecting the batch over — the resolver
+    // falls back to neutral motion — but a malformed one signals a client bug.
+    if (photo.sceneType !== undefined && !isSceneType(photo.sceneType)) {
+      throw new ValidationError(`Unknown scene type: ${String(photo.sceneType)}`);
     }
   }
 }
 
-/** Submit one photo, turning a provider rejection into a failed clip. */
+/**
+ * Submit one photo, turning a provider rejection into a failed clip.
+ *
+ * The prompt is resolved here rather than inside the provider: every backend
+ * gets the same words, and the resolved text is stored on the clip so a retry
+ * reproduces exactly what was asked for the first time.
+ */
 async function submitClip(
   provider: VideoProvider,
-  imageUrl: string,
+  photo: PhotoInput,
   index: number,
   options: ClipOptions | undefined,
   attempts: number
 ): Promise<Clip> {
   const clipId = crypto.randomUUID();
+  const resolved = buildClipPrompt(
+    options?.styleId,
+    photo.sceneType,
+    options?.prompt
+  );
+
+  const base = {
+    clipId,
+    index,
+    imageUrl: photo.imageUrl,
+    sceneType: resolved.sceneType,
+    attempts,
+  };
 
   try {
-    const job = await provider.createClipJob({ imageUrl, options });
-    return {
-      clipId,
-      index,
-      imageUrl,
-      providerJobId: job.providerJobId,
-      status: job.status,
-      attempts,
-    };
+    const job = await provider.createClipJob({
+      imageUrl: photo.imageUrl,
+      resolved,
+      options,
+    });
+    return { ...base, providerJobId: job.providerJobId, status: job.status };
   } catch (err) {
     // One photo failing to enqueue must not sink the other nine.
     return {
-      clipId,
-      index,
-      imageUrl,
+      ...base,
       providerJobId: "",
       status: "failed",
       error: err instanceof Error ? err.message : "Could not create the provider job",
-      attempts,
     };
   }
 }
 
 /** Fan out: N photos become N provider jobs, throttled and order-preserving. */
 export async function createBatch(
-  imageUrls: string[],
+  photos: PhotoInput[],
   options?: ClipOptions
 ): Promise<Batch> {
-  validate(imageUrls);
+  validate(photos);
 
   const provider = getVideoProvider();
   const now = Date.now();
 
   const clips = await mapWithConcurrency(
-    imageUrls,
+    photos,
     CREATE_CONCURRENCY,
-    (imageUrl, index) => submitClip(provider, imageUrl, index, options, 1)
+    (photo, index) => submitClip(provider, photo, index, options, 1)
   );
 
   const batch: Batch = {
@@ -137,7 +164,7 @@ async function refreshClip(
   if (next.status === "failed" && next.attempts < MAX_CLIP_ATTEMPTS) {
     const retried = await submitClip(
       provider,
-      next.imageUrl,
+      { imageUrl: next.imageUrl, sceneType: next.sceneType },
       next.index,
       options,
       next.attempts + 1
@@ -187,10 +214,13 @@ export async function retryFailedClips(batch: Batch): Promise<Batch> {
   const provider = getVideoProvider();
 
   const resubmitted = await mapWithConcurrency(failed, CREATE_CONCURRENCY, (clip) =>
-    submitClip(provider, clip.imageUrl, clip.index, batch.options, 1).then((next) => ({
-      ...next,
-      clipId: clip.clipId,
-    }))
+    submitClip(
+      provider,
+      { imageUrl: clip.imageUrl, sceneType: clip.sceneType },
+      clip.index,
+      batch.options,
+      1
+    ).then((next) => ({ ...next, clipId: clip.clipId }))
   );
 
   const byClipId = new Map(resubmitted.map((clip) => [clip.clipId, clip]));

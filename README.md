@@ -38,13 +38,45 @@ Para renders reales:
 cp .env.example .env.local   # y rellena HIGGSFIELD_API_KEY
 ```
 
+## Estilos y escenas
+
+El prompt de cada clip se compone de **dos** decisiones, no de una:
+
+```
+estilo (todo el reel)  ×  escena (esta foto)  →  prompt final
+```
+
+Un solo eje no basta, porque el movimiento correcto depende de la estancia: el
+paneo lateral que favorece una encimera destroza el espejo de un baño.
+
+**Estilos** ([`src/lib/prompts/styles.ts`](src/lib/prompts/styles.ts)) — cada
+uno fija también formato y duración, que es la parte con consecuencias:
+
+| Estilo | Formato | Clip | Para |
+| --- | --- | --- | --- |
+| Cinematográfico | 16:9 | 7s | Obra nueva de lujo, villas, portales premium |
+| Dron / aéreo | 16:9 | 8s | Chalets, fincas, parcelas, edificios |
+| Dinámico / social | 9:16 | 4s | Reels y TikTok, alquiler joven |
+| Visita guiada | 16:9 | 5s | Pisos, visitas virtuales |
+| Editorial | 4:5 | 6s | Interiorismo, arquitectura de autor |
+| Lifestyle turístico | 9:16 | 5s | Alquiler vacacional, Airbnb |
+
+**Escenas** ([`src/lib/prompts/scenes.ts`](src/lib/prompts/scenes.ts)) — trece
+tipos (fachada, salón, cocina, dormitorio, baño, terraza, piscina, vistas,
+jardín, distribuidor, detalle, zonas comunes, genérico), cada uno con su
+movimiento de cámara. Se preseleccionan por posición y el usuario los corrige.
+
+El catálogo se sirve al cliente en `GET /api/styles` **sin** el texto que lee el
+modelo. Ese texto va en inglés (los modelos siguen el vocabulario de cámara
+inglés mucho mejor) y no debe viajar al navegador.
+
 ## Flujo
 
-1. El usuario arrastra las fotos ([`PhotoDropzone`](src/components/PhotoDropzone.tsx))
-   y las ordena. **Ese orden es el del vídeo final.**
+1. El usuario arrastra las fotos ([`PhotoDropzone`](src/components/PhotoDropzone.tsx)),
+   las ordena y marca qué es cada una. **Ese orden es el del vídeo final.**
 2. `POST /api/upload` las guarda y devuelve URLs absolutas.
-3. `POST /api/generate` hace el fan-out: N fotos → N jobs. Devuelve un
-   `batchId` sin esperar al render.
+3. `POST /api/generate` resuelve el prompt de cada foto y hace el fan-out:
+   N fotos → N jobs. Devuelve un `batchId` sin esperar al render.
 4. El cliente sondea `GET /api/generate/[batchId]`. Cada llamada refresca los
    clips no terminados y reintenta los fallidos.
 5. Cuando todos terminan, [`compose.ts`](src/lib/compose.ts) construye el
@@ -71,11 +103,17 @@ src/
     api/upload/route.ts             # sube fotos → URLs
     api/generate/route.ts           # POST: fan-out del lote
     api/generate/[batchId]/route.ts # GET: estado · POST: reintentar fallidos
+    api/styles/route.ts             # catálogo público (sin los prompts)
   components/
-    PhotoDropzone.tsx               # drag & drop + reordenar
+    PhotoDropzone.tsx               # drag & drop, reordenar y tipo de escena
+    StylePicker.tsx                 # elección de estilo
     ClipProgressList.tsx            # progreso por clip
     ReelPlayer.tsx                  # reproduce el montaje
   lib/
+    prompts/
+      styles.ts                     # catálogo de estilos
+      scenes.ts                     # catálogo de escenas
+      index.ts                      # resolutor estilo × escena → prompt
     pipeline.ts                     # fan-out, polling, reintentos
     compose.ts                      # montaje y estado derivado del lote
     jobStore.ts                     # lotes en memoria (ver aviso abajo)

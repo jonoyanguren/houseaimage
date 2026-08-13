@@ -106,10 +106,17 @@ export function useVideoGeneration() {
 
         setState({ stage: "generating" });
 
+        // The upload preserves order, so index i of the response is photo i —
+        // which is what pairs each URL with the scene the user chose for it.
+        const payloadPhotos = (uploadData.urls as string[]).map((imageUrl, i) => ({
+          imageUrl,
+          sceneType: photos[i]?.sceneType,
+        }));
+
         const createRes = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageUrls: uploadData.urls, options }),
+          body: JSON.stringify({ photos: payloadPhotos, options }),
         });
         const batch = await createRes.json();
         if (runId !== runIdRef.current) return;

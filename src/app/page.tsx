@@ -2,13 +2,17 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
+import type { StyleId } from "@/types/video";
 import { PhotoDropzone, type PhotoItem } from "@/components/PhotoDropzone";
+import { StylePicker } from "@/components/StylePicker";
 import { ClipProgressList, ClipSummary } from "@/components/ClipProgressList";
 import { ReelPlayer } from "@/components/ReelPlayer";
 import { useVideoGeneration } from "@/lib/useVideoGeneration";
+import { DEFAULT_STYLE_ID } from "@/lib/prompts";
 
 export default function Home() {
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [styleId, setStyleId] = useState<StyleId>(DEFAULT_STYLE_ID);
   const [prompt, setPrompt] = useState("");
   const { state, generate, retryFailed, reset } = useVideoGeneration();
 
@@ -49,29 +53,39 @@ export default function Home() {
 
           <Step
             number="02"
-            title="Define el movimiento"
-            hint="Opcional · se aplica a todos los planos"
+            title="Elige el estilo"
+            hint="Define el movimiento, el formato y la duración de cada plano"
+          >
+            <StylePicker value={styleId} onChange={setStyleId} disabled={isBusy} />
+          </Step>
+
+          <Step
+            number="03"
+            title="Matices"
+            hint="Opcional · se suma al estilo elegido"
           >
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               disabled={isBusy}
-              placeholder="Travelling lento hacia delante, cámara estable, movimiento sutil…"
+              placeholder="Luz de tarde, ambiente cálido…"
               rows={3}
               className="w-full resize-none rounded-sm border border-line bg-surface p-5 text-[15px] leading-relaxed outline-none transition-colors placeholder:text-faint focus:border-line-strong disabled:opacity-40"
             />
             <p className="mt-3 text-[13px] leading-relaxed text-faint">
-              Describe la cámara, no la estancia. Describir lo que ya se ve en la
-              foto invita al modelo a redibujarla.
+              El movimiento de cámara ya lo fijan el estilo y el tipo de estancia.
+              Usa esto solo para matizar luz o ambiente.
             </p>
           </Step>
 
-          <Step number="03" title="Genera el recorrido">
+          <Step number="04" title="Genera el recorrido">
             <div className="flex flex-col gap-8">
               <button
                 type="button"
                 disabled={photos.length === 0 || isBusy}
-                onClick={() => generate(photos, { prompt: prompt || undefined })}
+                onClick={() =>
+                  generate(photos, { styleId, prompt: prompt || undefined })
+                }
                 className="group inline-flex w-fit items-center gap-3 rounded-full bg-accent px-8 py-3.5 text-[13px] font-medium uppercase tracking-[0.14em] text-accent-ink transition-all duration-300 hover:gap-4 disabled:pointer-events-none disabled:opacity-25"
               >
                 {isBusy ? "Generando" : "Generar vídeo"}

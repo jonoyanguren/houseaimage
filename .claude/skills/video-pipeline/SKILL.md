@@ -19,6 +19,10 @@ N fotos → N jobs (fan-out) → N clips (polling independiente) → 1 montaje
 Si alguna vez te ves escribiendo "mandar todas las fotos en un job", para: eso
 es la arquitectura que este código sustituyó, y no puede funcionar.
 
+El prompt de cada clip no se escribe aquí: lo compone `src/lib/prompts` a
+partir del estilo y del tipo de escena (ver skill `video-styles`). El pipeline
+lo resuelve una vez en `submitClip` y se lo pasa ya hecho al proveedor.
+
 ## Invariantes
 
 Rómpelos y el vídeo sale mal aunque los tests pasen.
@@ -54,6 +58,7 @@ Rómpelos y el vídeo sale mal aunque los tests pasen.
 | Cambiar cómo se monta el vídeo o el estado del lote | `src/lib/compose.ts` |
 | Persistir los lotes de verdad | `src/lib/jobStore.ts` |
 | Añadir o corregir un backend | `src/lib/providers/` (ver skill `video-provider`) |
+| Tocar estilos, escenas o prompts | `src/lib/prompts/` (ver skill `video-styles`) |
 | Ajustar límites y concurrencia | `src/lib/config.ts` |
 
 ## Estados del lote
@@ -92,7 +97,9 @@ Y de punta a punta por API:
 ```bash
 BID=$(curl -s -X POST localhost:3000/api/generate \
   -H 'Content-Type: application/json' \
-  -d '{"imageUrls":["http://localhost:3000/uploads/a.jpg","http://localhost:3000/uploads/b.jpg"]}' \
+  -d '{"photos":[{"imageUrl":"http://localhost:3000/uploads/a.jpg","sceneType":"salon"},
+                 {"imageUrl":"http://localhost:3000/uploads/b.jpg","sceneType":"cocina"}],
+       "options":{"styleId":"cinematografico"}}' \
   | node -pe 'JSON.parse(require("fs").readFileSync(0)).batchId')
 
 curl -s localhost:3000/api/generate/$BID   # sondear

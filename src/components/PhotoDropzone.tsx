@@ -2,11 +2,15 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import type { SceneType } from "@/types/video";
+import { SCENE_LIST, suggestSceneType } from "@/lib/prompts";
 
 export interface PhotoItem {
   id: string;
   file: File;
   previewUrl: string;
+  /** What the photo shows; drives the camera movement for its clip. */
+  sceneType: SceneType;
 }
 
 interface PhotoDropzoneProps {
@@ -22,17 +26,29 @@ export function PhotoDropzone({ photos, onChange, disabled }: PhotoDropzoneProps
   const addFiles = useCallback(
     (fileList: FileList | null) => {
       if (!fileList) return;
-      const newPhotos: PhotoItem[] = Array.from(fileList)
-        .filter((file) => file.type.startsWith("image/"))
-        .map((file) => ({
-          id: crypto.randomUUID(),
-          file,
-          previewUrl: URL.createObjectURL(file),
-        }));
+
+      const incoming = Array.from(fileList).filter((file) =>
+        file.type.startsWith("image/")
+      );
+      const total = photos.length + incoming.length;
+
+      // Pre-classify by position so the user never faces an empty selector;
+      // every guess stays editable below the thumbnail.
+      const newPhotos: PhotoItem[] = incoming.map((file, i) => ({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        sceneType: suggestSceneType(photos.length + i, total),
+      }));
+
       onChange([...photos, ...newPhotos]);
     },
     [photos, onChange]
   );
+
+  const setSceneType = (id: string, sceneType: SceneType) => {
+    onChange(photos.map((p) => (p.id === id ? { ...p, sceneType } : p)));
+  };
 
   const removePhoto = (id: string) => {
     const photo = photos.find((p) => p.id === id);
@@ -121,47 +137,62 @@ export function PhotoDropzone({ photos, onChange, disabled }: PhotoDropzoneProps
 
           <ul className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
             {photos.map((photo, index) => (
-              <li
-                key={photo.id}
-                className="rise group relative aspect-[4/3] overflow-hidden rounded-sm border border-line bg-surface"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={photo.previewUrl}
-                  alt={`Escena ${index + 1}`}
-                  className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.04]"
-                />
+              <li key={photo.id} className="rise flex flex-col gap-2">
+                <div className="group relative aspect-[4/3] overflow-hidden rounded-sm border border-line bg-surface">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo.previewUrl}
+                    alt={`Escena ${index + 1}`}
+                    className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.04]"
+                  />
 
-                <span className="absolute left-3 top-3 rounded-sm bg-black/45 px-2 py-0.5 font-mono text-[11px] tracking-widest text-white/90 backdrop-blur-sm">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
+                  <span className="absolute left-3 top-3 rounded-sm bg-black/45 px-2 py-0.5 font-mono text-[11px] tracking-widest text-white/90 backdrop-blur-sm">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
 
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-8 opacity-0 transition-opacity duration-300 group-hover:opacity-100 focus-within:opacity-100">
-                  <div className="flex gap-0.5">
+                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-8 opacity-0 transition-opacity duration-300 group-hover:opacity-100 focus-within:opacity-100">
+                    <div className="flex gap-0.5">
+                      <IconButton
+                        label={`Mover la escena ${index + 1} antes`}
+                        disabled={disabled || index === 0}
+                        onClick={() => move(photo.id, -1)}
+                      >
+                        ←
+                      </IconButton>
+                      <IconButton
+                        label={`Mover la escena ${index + 1} después`}
+                        disabled={disabled || index === photos.length - 1}
+                        onClick={() => move(photo.id, 1)}
+                      >
+                        →
+                      </IconButton>
+                    </div>
+
                     <IconButton
-                      label={`Mover la escena ${index + 1} antes`}
-                      disabled={disabled || index === 0}
-                      onClick={() => move(photo.id, -1)}
+                      label={`Quitar la escena ${index + 1}`}
+                      disabled={disabled}
+                      onClick={() => removePhoto(photo.id)}
                     >
-                      ←
-                    </IconButton>
-                    <IconButton
-                      label={`Mover la escena ${index + 1} después`}
-                      disabled={disabled || index === photos.length - 1}
-                      onClick={() => move(photo.id, 1)}
-                    >
-                      →
+                      ✕
                     </IconButton>
                   </div>
-
-                  <IconButton
-                    label={`Quitar la escena ${index + 1}`}
-                    disabled={disabled}
-                    onClick={() => removePhoto(photo.id)}
-                  >
-                    ✕
-                  </IconButton>
                 </div>
+
+                <select
+                  aria-label={`Tipo de estancia de la escena ${index + 1}`}
+                  value={photo.sceneType}
+                  disabled={disabled}
+                  onChange={(e) =>
+                    setSceneType(photo.id, e.target.value as SceneType)
+                  }
+                  className="w-full cursor-pointer rounded-sm border border-line bg-surface px-2.5 py-1.5 text-[12px] text-muted outline-none transition-colors hover:border-line-strong focus:border-line-strong disabled:opacity-40"
+                >
+                  {SCENE_LIST.map((scene) => (
+                    <option key={scene.id} value={scene.id}>
+                      {scene.label}
+                    </option>
+                  ))}
+                </select>
               </li>
             ))}
           </ul>

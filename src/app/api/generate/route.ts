@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const batch = await createBatch(body.imageUrls, body.options);
+    const batch = await createBatch(body.photos, body.options);
     return NextResponse.json(batch, { status: 201 });
   } catch (err) {
     if (err instanceof ValidationError) {

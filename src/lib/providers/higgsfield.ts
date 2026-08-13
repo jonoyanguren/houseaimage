@@ -77,15 +77,24 @@ export const higgsfieldProvider: VideoProvider = {
   name: "higgsfield",
 
   async createClipJob(input: CreateClipInput): Promise<ProviderClipJob> {
+    const { resolved, options } = input;
+
     const data = await higgsfieldFetch("/videos/generate", {
       method: "POST",
       body: JSON.stringify({
         // One starting frame per job — this is the whole point of the fan-out.
         image: input.imageUrl,
-        preset: input.options?.preset ?? "dop-1",
-        prompt: input.options?.prompt,
-        aspect_ratio: input.options?.aspectRatio ?? "9:16",
-        duration: input.options?.durationSeconds ?? DEFAULT_CLIP_SECONDS,
+        preset: options?.preset ?? "dop-1",
+        // Already composed from style + scene + user input by
+        // `src/lib/prompts`. Providers never build prompts themselves.
+        prompt: resolved.prompt,
+        // Sent as a dedicated field: models honour a real negative prompt far
+        // better than "no X" folded into the positive one.
+        negative_prompt: resolved.negative,
+        // An explicit override wins; otherwise the style decides.
+        aspect_ratio: options?.aspectRatio ?? resolved.aspectRatio,
+        duration:
+          options?.durationSeconds ?? resolved.durationSeconds ?? DEFAULT_CLIP_SECONDS,
       }),
     });
 
