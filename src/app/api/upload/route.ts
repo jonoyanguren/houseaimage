@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveImage } from "@/lib/storage";
+import { MAX_PHOTOS_PER_BATCH } from "@/lib/config";
+
+/** Reject oversized originals before writing them to disk. */
+const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
   const formData = await req.formData();
@@ -9,13 +13,42 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No files provided" }, { status: 400 });
   }
 
-  const origin = req.nextUrl.origin;
-  const urls = await Promise.all(
-    files.map(async (file) => {
-      const relativePath = await saveImage(file);
-      return `${origin}${relativePath}`;
-    })
-  );
+  if (files.length > MAX_PHOTOS_PER_BATCH) {
+    return NextResponse.json(
+      {
+        error: `Too many photos: ${files.length}. The limit is ${MAX_PHOTOS_PER_BATCH}.`,
+      },
+      { status: 400 }
+    );
+  }
 
-  return NextResponse.json({ urls });
+  for (const file of files) {
+    if (!file.type.startsWith("image/")) {
+      return NextResponse.json(
+        { error: `"${file.name}" is not an image` },
+        { status: 400 }
+      );
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      return NextResponse.json(
+        { error: `"${file.name}" is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB` },
+        { status: 413 }
+      );
+    }
+  }
+
+  // The provider fetches these URLs itself, so they must be absolute and
+  // publicly reachable — a localhost URL works in dev only because the
+  // simulated provider never downloads anything.
+  const origin = req.nextUrl.origin;
+
+  try {
+    const urls = await Promise.all(
+      files.map(async (file) => `${origin}${await saveImage(file)}`)
+    );
+    return NextResponse.json({ urls });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

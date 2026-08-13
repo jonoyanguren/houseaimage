@@ -1,0 +1,89 @@
+import type { Batch, BatchStatus, Clip, Reel, ReelSegment } from "@/types/video";
+import { DEFAULT_CLIP_SECONDS } from "@/lib/config";
+
+/**
+ * Montage — turning N finished clips back into one video.
+ *
+ * The default strategy is `sequential-playlist`: we return an ordered timeline
+ * and the client plays the clips back to back. It needs no extra
+ * infrastructure and gives the user something watchable the moment the last
+ * clip lands.
+ *
+ * A real downloadable single file needs actual concatenation — ffmpeg on a
+ * worker, or a rendering service (Shotstack, Creatomate, Mux). That belongs
+ * behind `stitchStrategy` below: implement it, return a `Reel` with `url` set
+ * and `strategy: "server-side-stitch"`, and the client will offer the file
+ * instead of the playlist. Nothing else needs to change.
+ */
+
+/** True once the clip can no longer change state. */
+export function isSettled(clip: Clip): boolean {
+  return clip.status === "completed" || clip.status === "failed";
+}
+
+/** A clip that actually contributes footage to the reel. */
+function isUsable(clip: Clip): boolean {
+  // Simulated clips have no videoUrl by design but still occupy a slot in the
+  // timeline, so the montage can be demoed without credentials.
+  return clip.status === "completed" && (Boolean(clip.videoUrl) || Boolean(clip.simulated));
+}
+
+/**
+ * Derive batch status from its clips.
+ *
+ * `partial` matters: a listing with one failed photo should still produce a
+ * reel from the other nine rather than throwing the batch away.
+ */
+export function deriveBatchStatus(clips: Clip[]): BatchStatus {
+  if (clips.length === 0) return "failed";
+  if (!clips.every(isSettled)) return "processing";
+
+  const usable = clips.filter(isUsable).length;
+  if (usable === 0) return "failed";
+  if (usable === clips.length) return "completed";
+
+  return "partial";
+}
+
+/**
+ * Build the reel from whichever clips succeeded, in the user's chosen order.
+ * Returns undefined while clips are still running or when none survived.
+ */
+export function composeReel(clips: Clip[]): Reel | undefined {
+  if (!clips.every(isSettled)) return undefined;
+
+  const usable = clips.filter(isUsable).sort((a, b) => a.index - b.index);
+  if (usable.length === 0) return undefined;
+
+  let cursor = 0;
+  const segments: ReelSegment[] = usable.map((clip) => {
+    const durationSeconds = DEFAULT_CLIP_SECONDS;
+    const segment: ReelSegment = {
+      clipId: clip.clipId,
+      index: clip.index,
+      imageUrl: clip.imageUrl,
+      videoUrl: clip.videoUrl,
+      simulated: clip.simulated,
+      durationSeconds,
+      startAtSeconds: cursor,
+    };
+    cursor += durationSeconds;
+    return segment;
+  });
+
+  return {
+    strategy: "sequential-playlist",
+    segments,
+    totalDurationSeconds: cursor,
+  };
+}
+
+/** Recompute the derived fields of a batch after its clips changed. */
+export function withDerivedState(batch: Batch, clips: Clip[]): Batch {
+  return {
+    ...batch,
+    clips,
+    status: deriveBatchStatus(clips),
+    reel: composeReel(clips),
+  };
+}

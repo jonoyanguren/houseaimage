@@ -83,8 +83,8 @@ export function PhotoDropzone({ photos, onChange, disabled }: PhotoDropzoneProps
       {photos.length > 0 && (
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {photos.map((photo, index) => (
-            // eslint-disable-next-line @next/next/no-img-element
             <div key={photo.id} className="group relative aspect-square overflow-hidden rounded-lg border border-foreground/10">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={photo.previewUrl}
                 alt={`Foto ${index + 1}`}
