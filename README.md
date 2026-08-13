@@ -124,16 +124,36 @@ src/
       index.ts                      # resolutor de los tres ejes → prompt
     pipeline.ts                     # fan-out, polling, reintentos
     compose.ts                      # montaje y estado derivado del lote
-    jobStore.ts                     # lotes en memoria (ver aviso abajo)
-    providers/
+    providers/                      # backends de vídeo
       index.ts                      # selección de proveedor
       higgsfield.ts                 # proveedor real
       mock.ts                       # proveedor simulado
+    storage/                        # dónde van las fotos
+      index.ts                      # selección de driver
+      local.ts                      # disco local
+    jobStore/                       # dónde viven los lotes
+      index.ts                      # selección de almacén
+      memory.ts                     # en memoria (ver aviso abajo)
     concurrency.ts                  # map con concurrencia limitada
     config.ts                       # tunables por variable de entorno
-    storage.ts                      # guardado de fotos
-  types/video.ts                    # tipos del dominio
+  types/                            # tipos del dominio
 ```
+
+Los tres puntos que atan la app a una máquina concreta — proveedor de vídeo,
+almacenamiento de fotos y persistencia de lotes — están detrás de una interfaz
+con el mismo patrón: un módulo por backend y un `index.ts` que elige según
+variable de entorno. Cambiar de hosting es escribir un módulo, no reescribir.
+
+## Tests
+
+```bash
+npm test
+```
+
+Cubren la lógica pura del backend: composición de prompts, integridad del
+catálogo, estado derivado del lote, montaje, concurrencia y el pipeline
+completo contra un proveedor de prueba. No necesitan navegador, red ni
+credenciales.
 
 ## Configuración
 
@@ -143,6 +163,8 @@ que importan:
 | Variable | Por defecto | Para qué |
 | --- | --- | --- |
 | `VIDEO_PROVIDER` | auto | `mock` o `higgsfield`. Sin valor: higgsfield si hay API key, si no mock. |
+| `STORAGE_DRIVER` | `local` | Dónde se guardan las fotos. |
+| `BATCH_STORE` | `memory` | Dónde viven los lotes. |
 | `MAX_PHOTOS_PER_BATCH` | 20 | Cada foto es un job: esto acota el gasto. |
 | `CREATE_CONCURRENCY` | 4 | Jobs creados a la vez. Subirlo invita a un 429. |
 | `POLL_CONCURRENCY` | 6 | Consultas de estado en paralelo. |
@@ -162,12 +184,16 @@ MOCK_FAILURE_RATE=0.4 npm run dev
   placeholder razonable. Confírmalos contra la documentación de tu cuenta.
   Todo lo demás es agnóstico del proveedor, así que corregirlos es un cambio de
   un solo archivo.
-- **`jobStore` es memoria de un proceso**: en serverless o con varias
+- **El almacén de lotes es memoria de un proceso**: en serverless o con varias
   instancias, dos sondeos consecutivos pueden caer en procesos distintos y dar
-  404. Sustitúyelo por Redis/Postgres/KV antes de desplegar.
-- **`storage.ts` escribe en disco local** (`public/uploads`). En serverless
-  cambia a S3, Cloudinary o Vercel Blob. Además el proveedor descarga las URLs
-  él mismo, así que en producción tienen que ser públicas de verdad.
+  404. Implementa `BatchStore` sobre Redis/Postgres/KV y regístralo en
+  `src/lib/jobStore/index.ts`.
+- **El almacenamiento por defecto escribe en disco local** (`public/uploads`).
+  En serverless implementa `StorageProvider` sobre S3, Cloudinary o Vercel Blob.
+  Además el proveedor descarga las URLs él mismo, así que en producción tienen
+  que ser públicas de verdad.
+- **No hay autenticación**: cualquiera que llegue a la URL puede gastar tus
+  créditos. Hace falta login y control de consumo antes de abrirlo.
 - **El montaje es una playlist**, no un fichero. El cliente encadena los clips.
   Para un MP4 descargable hace falta concatenar de verdad (ffmpeg en un worker,
   o un servicio tipo Shotstack/Creatomate/Mux); el hueco está marcado en

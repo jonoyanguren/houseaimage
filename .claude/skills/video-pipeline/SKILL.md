@@ -56,7 +56,8 @@ Rómpelos y el vídeo sale mal aunque los tests pasen.
 | --- | --- |
 | Cambiar cómo se crean o sondean los jobs | `src/lib/pipeline.ts` |
 | Cambiar cómo se monta el vídeo o el estado del lote | `src/lib/compose.ts` |
-| Persistir los lotes de verdad | `src/lib/jobStore.ts` |
+| Persistir los lotes de verdad | `src/lib/jobStore/` |
+| Cambiar dónde se guardan las fotos | `src/lib/storage/` |
 | Añadir o corregir un backend | `src/lib/providers/` (ver skill `video-provider`) |
 | Tocar estilos, escenas o prompts | `src/lib/prompts/` (ver skill `video-styles`) |
 | Ajustar límites y concurrencia | `src/lib/config.ts` |
@@ -81,6 +82,42 @@ en otro sitio.
 - **Manual**, vía `POST /api/generate/[batchId]` → `retryFailedClips`: reinicia
   el contador y re-envía los que quedaron fallidos. Solo re-renderiza esos, así
   que rescatar un `partial` no vuelve a cobrar los clips que ya salieron.
+
+## Los tres puntos conectables
+
+Proveedor de vídeo, almacenamiento de fotos y persistencia de lotes siguen el
+**mismo patrón**: una interfaz en `src/types`, un módulo por backend, y un
+`index.ts` que elige según variable de entorno con reserva a la opción que
+funciona sin configurar nada.
+
+| Qué | Interfaz | Variable | Por defecto |
+| --- | --- | --- | --- |
+| Backend de vídeo | `VideoProvider` | `VIDEO_PROVIDER` | `mock` |
+| Fotos | `StorageProvider` | `STORAGE_DRIVER` | `local` |
+| Lotes | `BatchStore` | `BATCH_STORE` | `memory` |
+
+Si te ves añadiendo un `if` por backend fuera de esos `index.ts`, la
+abstracción se está filtrando.
+
+**`BatchStore` es asíncrono a propósito**, aunque la implementación en memoria
+no lo necesite: Redis, Postgres y KV lo son. Comprometerse con async ahora
+evita que cambiar de backend rompa a todos los llamantes. No lo "simplifiques"
+a síncrono.
+
+## Tests
+
+```bash
+npm test          # una pasada
+npm run test:watch
+```
+
+Cubren la lógica pura: prompts, integridad del catálogo, estado derivado,
+montaje, concurrencia y el pipeline entero contra un proveedor de prueba
+(`vi.mock` sobre `@/lib/providers`). Sin navegador, red ni credenciales.
+
+Si tocas un invariante de los de arriba, **hay un test que debe fallar**. Si
+cambias el comportamiento y no falla nada, falta cobertura: añádela antes de
+seguir.
 
 ## Cómo probarlo sin gastar créditos
 

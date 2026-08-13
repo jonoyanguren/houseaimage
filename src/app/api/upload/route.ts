@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { saveImage } from "@/lib/storage";
+import { getStorage, toAbsoluteUrl } from "@/lib/storage";
 import { MAX_PHOTOS_PER_BATCH } from "@/lib/config";
 
 /** Reject oversized originals before writing them to disk. */
@@ -41,10 +41,14 @@ export async function POST(req: NextRequest) {
   // publicly reachable — a localhost URL works in dev only because the
   // simulated provider never downloads anything.
   const origin = req.nextUrl.origin;
+  const storage = getStorage();
 
   try {
     const urls = await Promise.all(
-      files.map(async (file) => `${origin}${await saveImage(file)}`)
+      files.map(async (file) => {
+        const stored = await storage.save(file);
+        return toAbsoluteUrl(stored.url, origin);
+      })
     );
     return NextResponse.json({ urls });
   } catch (err) {

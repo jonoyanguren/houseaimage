@@ -14,7 +14,7 @@ export async function GET(
   ctx: RouteContext<"/api/generate/[batchId]">
 ) {
   const { batchId } = await ctx.params;
-  const batch = getBatch(batchId);
+  const batch = await getBatch(batchId);
 
   if (!batch) {
     return NextResponse.json(
@@ -40,7 +40,7 @@ export async function POST(
   ctx: RouteContext<"/api/generate/[batchId]">
 ) {
   const { batchId } = await ctx.params;
-  const batch = getBatch(batchId);
+  const batch = await getBatch(batchId);
 
   if (!batch) {
     return NextResponse.json(
