@@ -95,7 +95,7 @@ inglés mucho mejor) y no debe viajar al navegador.
 
 | Estado | Significado |
 | --- | --- |
-| `processing` | Queda al menos un clip en cola o generando. |
+| `processing` | Queda al menos un clip en cola, generando o esperando reintento. |
 | `completed` | Todos los clips salieron bien. |
 | `partial` | Todos terminaron, algunos fallaron. Hay montaje con los que sobrevivieron. |
 | `failed` | Todos terminaron y ninguno sirve. |
@@ -169,6 +169,8 @@ que importan:
 | `CREATE_CONCURRENCY` | 4 | Jobs creados a la vez. Subirlo invita a un 429. |
 | `POLL_CONCURRENCY` | 6 | Consultas de estado en paralelo. |
 | `MAX_CLIP_ATTEMPTS` | 2 | Reintentos automáticos por clip. |
+| `RETRY_BACKOFF_SECONDS` | 15 | Espera antes de reintentar, doblándose en cada intento. |
+| `CLIP_TIMEOUT_MINUTES` | 10 | A partir de aquí se da por perdido un clip atascado. |
 | `MOCK_FAILURE_RATE` | 0 | Fracción de fallos simulados, para probar `partial` y reintentos. |
 
 Para ver el camino de fallo:

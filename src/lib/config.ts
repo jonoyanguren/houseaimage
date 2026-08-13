@@ -40,6 +40,24 @@ export const POLL_CONCURRENCY = intFromEnv("POLL_CONCURRENCY", 6, 1, 16);
  */
 export const MAX_CLIP_ATTEMPTS = intFromEnv("MAX_CLIP_ATTEMPTS", 2, 1, 5);
 
+/**
+ * Base wait before re-submitting a failed clip, doubling per attempt.
+ *
+ * Retrying instantly is worse than not retrying: the usual cause of a failure
+ * is a rate limit or a provider wobble, and an immediate retry hits the same
+ * wall and burns the remaining attempt for nothing.
+ */
+export const RETRY_BACKOFF_MS = intFromEnv("RETRY_BACKOFF_SECONDS", 15, 1, 600) * 1_000;
+
+/**
+ * How long a clip may sit unfinished before we give up on it.
+ *
+ * Without this a provider that never settles a job leaves the batch polling
+ * forever, until the TTL quietly evicts it and the user is told the batch
+ * "expired" — which is both wrong and unactionable.
+ */
+export const CLIP_TIMEOUT_MS = intFromEnv("CLIP_TIMEOUT_MINUTES", 10, 1, 120) * 60_000;
+
 /** Assumed clip length when the provider doesn't tell us, used for timeline maths. */
 export const DEFAULT_CLIP_SECONDS = intFromEnv("DEFAULT_CLIP_SECONDS", 5, 2, 15);
 

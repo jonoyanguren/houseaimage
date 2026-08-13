@@ -6,7 +6,7 @@ import type {
   Reel,
   ReelSegment,
 } from "@/types/video";
-import { DEFAULT_CLIP_SECONDS } from "@/lib/config";
+import { DEFAULT_CLIP_SECONDS, MAX_CLIP_ATTEMPTS } from "@/lib/config";
 import { getStyle } from "@/lib/prompts";
 
 /**
@@ -24,9 +24,24 @@ import { getStyle } from "@/lib/prompts";
  * instead of the playlist. Nothing else needs to change.
  */
 
-/** True once the clip can no longer change state. */
+/**
+ * True once the clip can no longer change state.
+ *
+ * A failed clip is **not** settled while it still has automatic attempts left:
+ * the next poll will re-submit it. Treating `failed` alone as terminal made a
+ * batch announce itself dead with a retry still pending — if the provider
+ * rejected every photo at once (a rate limit, a brief outage), the whole batch
+ * reported `failed` on creation and any client that trusted that status gave
+ * up on work that was about to recover.
+ */
 export function isSettled(clip: Clip): boolean {
-  return clip.status === "completed" || clip.status === "failed";
+  if (clip.status === "completed") return true;
+  return clip.status === "failed" && clip.attempts >= MAX_CLIP_ATTEMPTS;
+}
+
+/** True while the clip is waiting to be re-submitted after a failure. */
+export function isAwaitingRetry(clip: Clip): boolean {
+  return clip.status === "failed" && clip.attempts < MAX_CLIP_ATTEMPTS;
 }
 
 /** A clip that actually contributes footage to the reel. */

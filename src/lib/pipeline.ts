@@ -7,14 +7,16 @@ import type {
 } from "@/types/video";
 import { getVideoProvider } from "@/lib/providers";
 import { mapWithConcurrency } from "@/lib/concurrency";
-import { isSettled, withDerivedState } from "@/lib/compose";
-import { saveBatch, updateBatch } from "@/lib/jobStore";
+import { isAwaitingRetry, isSettled, withDerivedState } from "@/lib/compose";
+import { getBatch, saveBatch, updateBatch } from "@/lib/jobStore";
+import { withLock } from "@/lib/lock";
 import { buildClipPrompt, isSceneType } from "@/lib/prompts";
 import {
+  CLIP_TIMEOUT_MS,
   CREATE_CONCURRENCY,
-  MAX_CLIP_ATTEMPTS,
   MAX_PHOTOS_PER_BATCH,
   POLL_CONCURRENCY,
+  RETRY_BACKOFF_MS,
 } from "@/lib/config";
 
 /**
@@ -85,6 +87,7 @@ async function submitClip(
     imageUrl: photo.imageUrl,
     sceneType: resolved.sceneType,
     attempts,
+    submittedAt: Date.now(),
   };
 
   try {
@@ -133,7 +136,12 @@ export async function createBatch(
   return saveBatch(withDerivedState(batch, clips));
 }
 
-/** Poll one clip and, if it failed and has attempts left, re-submit it. */
+/** Wait before attempt N, doubling each time so a rate limit gets room. */
+function backoffFor(attempts: number): number {
+  return RETRY_BACKOFF_MS * 2 ** (attempts - 1);
+}
+
+/** Poll one clip, time it out if it hangs, and re-submit it when it is due. */
 async function refreshClip(
   provider: VideoProvider,
   clip: Clip,
@@ -162,7 +170,28 @@ async function refreshClip(
     }
   }
 
-  if (next.status === "failed" && next.attempts < MAX_CLIP_ATTEMPTS) {
+  // A job the provider never settles would otherwise keep the batch polling
+  // until the TTL evicted it, and the user would be told it "expired".
+  if (
+    next.status !== "completed" &&
+    next.status !== "failed" &&
+    Date.now() - next.submittedAt > CLIP_TIMEOUT_MS
+  ) {
+    next = {
+      ...next,
+      status: "failed",
+      error: `The provider did not finish this clip within ${Math.round(
+        CLIP_TIMEOUT_MS / 60_000
+      )} minutes`,
+    };
+  }
+
+  if (isAwaitingRetry(next)) {
+    // Retrying instantly walks straight back into whatever rate limit caused
+    // the failure, spending the last attempt for nothing. Leave it pending and
+    // let a later poll pick it up.
+    if (Date.now() - next.submittedAt < backoffFor(next.attempts)) return next;
+
     const retried = await submitClip(
       provider,
       { imageUrl: next.imageUrl, sceneType: next.sceneType },
@@ -181,51 +210,61 @@ async function refreshClip(
  * Refresh every unsettled clip in the batch and recompute its derived state.
  * Settled clips are skipped, so polling a finished batch costs nothing.
  */
-export async function refreshBatch(batch: Batch): Promise<Batch> {
-  // Still running, or failed with an automatic retry left. Completed clips are
-  // never re-polled.
-  const pending = batch.clips.filter(
-    (clip) =>
-      !isSettled(clip) ||
-      (clip.status === "failed" && clip.attempts < MAX_CLIP_ATTEMPTS)
-  );
+export function refreshBatch(batchId: string): Promise<Batch | undefined> {
+  // Serialised per batch, and — critically — the batch is re-read *inside* the
+  // lock. Callers used to hand in a snapshot they had fetched earlier, so two
+  // concurrent polls both saw the same failed clip and both re-submitted it.
+  return withLock(batchId, async () => {
+    const batch = await getBatch(batchId);
+    if (!batch) return undefined;
 
-  if (pending.length === 0) return batch;
+    // Anything not settled: still running, or failed with an attempt left.
+    // Completed clips are never re-polled.
+    const pending = batch.clips.filter((clip) => !isSettled(clip));
+    if (pending.length === 0) return batch;
 
-  const provider = getVideoProvider();
+    const provider = getVideoProvider();
 
-  const refreshed = await mapWithConcurrency(pending, POLL_CONCURRENCY, (clip) =>
-    refreshClip(provider, clip, batch.options)
-  );
+    const refreshed = await mapWithConcurrency(pending, POLL_CONCURRENCY, (clip) =>
+      refreshClip(provider, clip, batch.options)
+    );
 
-  const byClipId = new Map(refreshed.map((clip) => [clip.clipId, clip]));
-  const clips = batch.clips.map((clip) => byClipId.get(clip.clipId) ?? clip);
+    const byClipId = new Map(refreshed.map((clip) => [clip.clipId, clip]));
+    const clips = batch.clips.map((clip) => byClipId.get(clip.clipId) ?? clip);
 
-  return updateBatch(withDerivedState(batch, clips));
+    return updateBatch(withDerivedState(batch, clips));
+  });
 }
 
 /**
  * Re-submit the clips that ended up failed, resetting their attempt counter.
  * Used by the "retry failed clips" action once automatic retries ran out.
  */
-export async function retryFailedClips(batch: Batch): Promise<Batch> {
-  const failed = batch.clips.filter((clip) => clip.status === "failed");
-  if (failed.length === 0) return batch;
+export function retryFailedClips(batchId: string): Promise<Batch | undefined> {
+  // Shares the batch lock with `refreshBatch`, so a manual retry crossing a
+  // poll cannot double-submit the same clip either.
+  return withLock(batchId, async () => {
+    const batch = await getBatch(batchId);
+    if (!batch) return undefined;
 
-  const provider = getVideoProvider();
+    const failed = batch.clips.filter((clip) => clip.status === "failed");
+    if (failed.length === 0) return batch;
 
-  const resubmitted = await mapWithConcurrency(failed, CREATE_CONCURRENCY, (clip) =>
-    submitClip(
-      provider,
-      { imageUrl: clip.imageUrl, sceneType: clip.sceneType },
-      clip.index,
-      batch.options,
-      1
-    ).then((next) => ({ ...next, clipId: clip.clipId }))
-  );
+    const provider = getVideoProvider();
 
-  const byClipId = new Map(resubmitted.map((clip) => [clip.clipId, clip]));
-  const clips = batch.clips.map((clip) => byClipId.get(clip.clipId) ?? clip);
+    const resubmitted = await mapWithConcurrency(failed, CREATE_CONCURRENCY, (clip) =>
+      submitClip(
+        provider,
+        { imageUrl: clip.imageUrl, sceneType: clip.sceneType },
+        clip.index,
+        batch.options,
+        1
+      ).then((next) => ({ ...next, clipId: clip.clipId }))
+    );
 
-  return updateBatch(withDerivedState(batch, clips));
+    const byClipId = new Map(resubmitted.map((clip) => [clip.clipId, clip]));
+    const clips = batch.clips.map((clip) => byClipId.get(clip.clipId) ?? clip);
+
+    return updateBatch(withDerivedState(batch, clips));
+  });
 }

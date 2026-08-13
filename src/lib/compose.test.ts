@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Clip, ClipStatus } from "@/types/video";
-import { composeReel, deriveBatchStatus, isSettled } from "@/lib/compose";
+import { composeReel, deriveBatchStatus, isAwaitingRetry, isSettled } from "@/lib/compose";
+import { MAX_CLIP_ATTEMPTS } from "@/lib/config";
 
+/**
+ * Failed clips default to an exhausted attempt budget, so they are genuinely
+ * terminal. A failure with attempts left is a different state — the batch is
+ * still running — and the tests that care about it say so explicitly.
+ */
 function clip(index: number, status: ClipStatus, extra: Partial<Clip> = {}): Clip {
   return {
     clipId: `clip-${index}`,
@@ -10,7 +16,8 @@ function clip(index: number, status: ClipStatus, extra: Partial<Clip> = {}): Cli
     sceneType: "generico",
     providerJobId: `job-${index}`,
     status,
-    attempts: 1,
+    attempts: status === "failed" ? MAX_CLIP_ATTEMPTS : 1,
+    submittedAt: 0,
     videoUrl: status === "completed" ? `https://example.test/${index}.mp4` : undefined,
     ...extra,
   };
@@ -22,6 +29,14 @@ describe("deriveBatchStatus", () => {
       "processing"
     );
     expect(deriveBatchStatus([clip(0, "queued")])).toBe("processing");
+  });
+
+  it("stays processing when every clip failed but retries remain", () => {
+    // The provider rejecting a whole batch at once — a rate limit, a brief
+    // outage — must not be reported as a dead batch.
+    const rejected = [clip(0, "failed", { attempts: 1 }), clip(1, "failed", { attempts: 1 })];
+
+    expect(deriveBatchStatus(rejected)).toBe("processing");
   });
 
   it("is completed only when every clip succeeded", () => {
@@ -125,5 +140,21 @@ describe("isSettled", () => {
     expect(isSettled(clip(0, "failed"))).toBe(true);
     expect(isSettled(clip(0, "queued"))).toBe(false);
     expect(isSettled(clip(0, "processing"))).toBe(false);
+  });
+
+  it("does not consider a failure settled while a retry is pending", () => {
+    // Otherwise the batch announces itself dead with work still to come.
+    const retryable = clip(0, "failed", { attempts: 1 });
+
+    expect(MAX_CLIP_ATTEMPTS).toBeGreaterThan(1);
+    expect(isSettled(retryable)).toBe(false);
+    expect(isAwaitingRetry(retryable)).toBe(true);
+  });
+
+  it("stops awaiting a retry once the budget is spent", () => {
+    const exhausted = clip(0, "failed", { attempts: MAX_CLIP_ATTEMPTS });
+
+    expect(isAwaitingRetry(exhausted)).toBe(false);
+    expect(isSettled(exhausted)).toBe(true);
   });
 });

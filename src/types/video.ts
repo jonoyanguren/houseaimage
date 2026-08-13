@@ -176,6 +176,11 @@ export interface Clip {
   simulated?: boolean;
   /** How many times this clip has been re-submitted after a failure. */
   attempts: number;
+  /**
+   * When the current provider job was created, reset on every retry. Drives
+   * both the stuck-job timeout and the wait between attempts.
+   */
+  submittedAt: number;
 }
 
 /** One entry of the assembled reel, with its position on the timeline. */

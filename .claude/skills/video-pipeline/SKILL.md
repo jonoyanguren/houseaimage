@@ -74,11 +74,38 @@ en otro sitio.
   en `failed`.
 - `failed` — ninguno sirve.
 
+## Qué cuenta como terminal
+
+`isSettled` **no** es "completed o failed". Un clip fallido con intentos
+disponibles todavía va a cambiar de estado, así que no está asentado.
+
+Tratarlo como terminal provocaba que un lote se declarara muerto con un
+reintento pendiente: si el proveedor rechazaba todas las fotos de golpe (rate
+limit, caída breve), `POST /api/generate` devolvía `failed` y cualquier cliente
+que se fiara de ese estado abandonaba trabajo que iba a recuperarse solo. Si
+tocas esta función, hay tests que deben fallar.
+
+## Acceso concurrente: relee dentro del cerrojo
+
+`refreshBatch` y `retryFailedClips` reciben un **`batchId`, no un lote**, y lo
+releen dentro de `withLock`. No es un capricho: recibir una instantánea
+obtenida antes hacía que dos sondeos simultáneos vieran el mismo clip fallido y
+lo reenviaran los dos — el cliente pagaba dos veces la misma foto.
+
+Si añades otra operación que modifique un lote, mete la lectura dentro del
+mismo cerrojo. Y recuerda que `src/lib/lock.ts` es de un solo proceso: quien
+implemente un `BatchStore` distribuido tiene que implementar también un cerrojo
+distribuido, o el doble cobro vuelve.
+
 ## Reintentos: hay dos, y son distintos
 
 - **Automático**, dentro de `refreshBatch`: un clip `failed` con
-  `attempts < MAX_CLIP_ATTEMPTS` se re-envía en el siguiente sondeo, sin que el
-  usuario haga nada.
+  `attempts < MAX_CLIP_ATTEMPTS` se re-envía, sin que el usuario haga nada,
+  **una vez pasada la espera** (`RETRY_BACKOFF_SECONDS`, que se dobla en cada
+  intento). Reintentar al instante vuelve a chocar con el rate limit que
+  probablemente causó el fallo y gasta el intento restante para nada.
+  Un clip que el proveedor no termina en `CLIP_TIMEOUT_MINUTES` se marca
+  fallido con ese motivo y entra por esta misma vía.
 - **Manual**, vía `POST /api/generate/[batchId]` → `retryFailedClips`: reinicia
   el contador y re-envía los que quedaron fallidos. Solo re-renderiza esos, así
   que rescatar un `partial` no vuelve a cobrar los clips que ya salieron.
