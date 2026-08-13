@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { PhotoDropzone, type PhotoItem } from "@/components/PhotoDropzone";
-import { ClipProgressList } from "@/components/ClipProgressList";
+import { ClipProgressList, ClipSummary } from "@/components/ClipProgressList";
 import { ReelPlayer } from "@/components/ReelPlayer";
 import { useVideoGeneration } from "@/lib/useVideoGeneration";
 
@@ -16,108 +17,165 @@ export default function Home() {
   const failedCount = batch?.clips.filter((c) => c.status === "failed").length ?? 0;
 
   return (
-    <div className="flex min-h-screen flex-col items-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex w-full max-w-3xl flex-col gap-8 px-6 py-16 sm:px-16">
-        <header className="flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Vídeos para anuncios inmobiliarios
+    <div className="flex min-h-screen flex-col">
+      <header className="border-b border-line">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-6 sm:px-10">
+          <span className="font-display text-lg tracking-tight">
+            houseaimage
+          </span>
+          <span className="eyebrow hidden sm:block">
+            Estudio de vídeo inmobiliario
+          </span>
+        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 pb-32 sm:px-10">
+        <section className="border-b border-line py-20 sm:py-28">
+          <h1 className="max-w-2xl font-display text-5xl leading-[1.05] tracking-[-0.02em] sm:text-6xl">
+            De las fotos del anuncio
+            <br />
+            <span className="italic text-accent">al vídeo del inmueble</span>
           </h1>
-          <p className="text-sm text-foreground/60">
-            Sube las fotos del inmueble y ordénalas. Cada foto se convierte en un
-            clip corto, y los clips se montan en un único vídeo.
-          </p>
-        </header>
-
-        <section className="flex flex-col gap-4">
-          <h2 className="text-sm font-medium text-foreground/80">1. Fotos</h2>
-          <PhotoDropzone photos={photos} onChange={setPhotos} disabled={isBusy} />
-        </section>
-
-        <section className="flex flex-col gap-2">
-          <h2 className="text-sm font-medium text-foreground/80">
-            2. Prompt (opcional)
-          </h2>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            disabled={isBusy}
-            placeholder="Describe el movimiento de cámara o el estilo, p. ej. «travelling lento hacia la ventana»…"
-            rows={3}
-            className="rounded-lg border border-foreground/15 bg-transparent p-3 text-sm outline-none focus:border-foreground/40 disabled:opacity-50"
-          />
-          <p className="text-xs text-foreground/50">
-            Se aplica a todos los clips del lote.
+          <p className="mt-7 max-w-md text-[15px] leading-relaxed text-muted">
+            Cada fotografía se convierte en un plano con movimiento de cámara.
+            Los planos se montan en un único recorrido, en el orden que elijas.
           </p>
         </section>
 
-        <section className="flex flex-col gap-4">
-          <h2 className="text-sm font-medium text-foreground/80">3. Generar</h2>
-          <button
-            type="button"
-            disabled={photos.length === 0 || isBusy}
-            onClick={() => generate(photos, { prompt: prompt || undefined })}
-            className="w-fit rounded-full bg-foreground px-6 py-2.5 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-40 dark:hover:bg-[#ccc]"
+        <div className="flex flex-col gap-20 py-20">
+          <Step number="01" title="Selecciona las fotografías">
+            <PhotoDropzone photos={photos} onChange={setPhotos} disabled={isBusy} />
+          </Step>
+
+          <Step
+            number="02"
+            title="Define el movimiento"
+            hint="Opcional · se aplica a todos los planos"
           >
-            {isBusy
-              ? "Generando…"
-              : `Generar ${photos.length || ""} ${photos.length === 1 ? "clip" : "clips"}`.trim()}
-          </button>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              disabled={isBusy}
+              placeholder="Travelling lento hacia delante, cámara estable, movimiento sutil…"
+              rows={3}
+              className="w-full resize-none rounded-sm border border-line bg-surface p-5 text-[15px] leading-relaxed outline-none transition-colors placeholder:text-faint focus:border-line-strong disabled:opacity-40"
+            />
+            <p className="mt-3 text-[13px] leading-relaxed text-faint">
+              Describe la cámara, no la estancia. Describir lo que ya se ve en la
+              foto invita al modelo a redibujarla.
+            </p>
+          </Step>
 
-          {state.stage === "uploading" && (
-            <p className="text-sm text-foreground/60">Subiendo fotos…</p>
-          )}
+          <Step number="03" title="Genera el recorrido">
+            <div className="flex flex-col gap-8">
+              <button
+                type="button"
+                disabled={photos.length === 0 || isBusy}
+                onClick={() => generate(photos, { prompt: prompt || undefined })}
+                className="group inline-flex w-fit items-center gap-3 rounded-full bg-accent px-8 py-3.5 text-[13px] font-medium uppercase tracking-[0.14em] text-accent-ink transition-all duration-300 hover:gap-4 disabled:pointer-events-none disabled:opacity-25"
+              >
+                {isBusy ? "Generando" : "Generar vídeo"}
+                <span aria-hidden="true" className="transition-transform">
+                  →
+                </span>
+              </button>
 
-          {batch && isBusy && <ClipProgressList clips={batch.clips} />}
-
-          {state.stage === "error" && state.error && (
-            <p className="text-sm text-red-500">{state.error}</p>
-          )}
-
-          {state.stage === "done" && batch && (
-            <div className="flex flex-col gap-4">
-              {batch.status === "partial" && (
-                <p className="text-sm text-amber-600 dark:text-amber-500">
-                  {failedCount} {failedCount === 1 ? "clip falló" : "clips fallaron"}. El
-                  montaje incluye el resto.
-                </p>
+              {state.stage === "uploading" && (
+                <p className="text-[13px] text-muted">Subiendo fotografías…</p>
               )}
 
-              {batch.reel && <ReelPlayer reel={batch.reel} />}
+              {batch && isBusy && <ClipProgressList clips={batch.clips} />}
 
-              <ClipProgressList clips={batch.clips} />
+              {state.stage === "error" && state.error && (
+                <div className="rounded-sm border border-line bg-surface p-5">
+                  <p className="eyebrow text-negative">No se pudo completar</p>
+                  <p className="mt-2 text-[14px] leading-relaxed text-muted">
+                    {state.error}
+                  </p>
+                  {batch && failedCount > 0 && (
+                    <TextButton onClick={retryFailed}>Reintentar</TextButton>
+                  )}
+                </div>
+              )}
 
-              <div className="flex flex-wrap gap-4">
-                {failedCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={retryFailed}
-                    className="text-sm font-medium text-foreground/60 underline underline-offset-4 hover:text-foreground"
-                  >
-                    Reintentar los {failedCount} que fallaron
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={reset}
-                  className="text-sm font-medium text-foreground/60 underline underline-offset-4 hover:text-foreground"
-                >
-                  Empezar de nuevo
-                </button>
-              </div>
+              {state.stage === "done" && batch && (
+                <div className="flex flex-col gap-8">
+                  {batch.status === "partial" && (
+                    <div className="border-l-2 border-accent bg-accent-soft px-5 py-4">
+                      <p className="text-[14px] leading-relaxed">
+                        {failedCount}{" "}
+                        {failedCount === 1
+                          ? "plano no se completó"
+                          : "planos no se completaron"}
+                        . El montaje incluye el resto.
+                      </p>
+                    </div>
+                  )}
+
+                  {batch.reel && <ReelPlayer reel={batch.reel} />}
+
+                  <div className="flex flex-wrap items-center justify-between gap-6 border-t border-line pt-6">
+                    <ClipSummary clips={batch.clips} />
+                    <div className="flex flex-wrap gap-6">
+                      {failedCount > 0 && (
+                        <TextButton onClick={retryFailed}>
+                          Reintentar los {failedCount} que faltan
+                        </TextButton>
+                      )}
+                      <TextButton onClick={reset}>Empezar de nuevo</TextButton>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-
-          {state.stage === "error" && batch && failedCount > 0 && (
-            <button
-              type="button"
-              onClick={retryFailed}
-              className="w-fit text-sm font-medium text-foreground/60 underline underline-offset-4 hover:text-foreground"
-            >
-              Reintentar
-            </button>
-          )}
-        </section>
+          </Step>
+        </div>
       </main>
     </div>
+  );
+}
+
+function Step({
+  number,
+  title,
+  hint,
+  children,
+}: {
+  number: string;
+  title: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="grid gap-6 sm:grid-cols-[auto_1fr] sm:gap-12">
+      <div className="sm:w-44">
+        <span className="font-mono text-[11px] tracking-widest text-accent">
+          {number}
+        </span>
+        <h2 className="mt-2 font-display text-xl leading-snug tracking-tight">
+          {title}
+        </h2>
+        {hint && <p className="mt-1.5 text-[12px] leading-relaxed text-faint">{hint}</p>}
+      </div>
+      <div className="min-w-0">{children}</div>
+    </section>
+  );
+}
+
+function TextButton({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-[13px] text-muted underline decoration-line-strong underline-offset-[6px] transition-colors hover:text-ink hover:decoration-accent"
+    >
+      {children}
+    </button>
   );
 }

@@ -1,28 +1,94 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens.
+ *
+ * Dark is the primary look — luxury property marketing is presented in
+ * screening-room conditions, where a bright chrome competes with the imagery.
+ * Light mode is a full peer, not an afterthought: every token below is
+ * redefined for it, so nothing borrows a colour from the other theme.
+ *
+ * The accent is brass rather than gold: saturated gold reads as costume
+ * jewellery on screen, while a desaturated brass holds up next to photography.
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Warm near-black; a pure #000 makes photography look flat. */
+  --canvas: #0b0b0c;
+  --surface: #131315;
+  --surface-raised: #1a1a1d;
+  --line: rgb(255 255 255 / 0.09);
+  --line-strong: rgb(255 255 255 / 0.18);
+  --ink: #f4f1ec;
+  --muted: #a09c94;
+  --faint: #6d6963;
+  --accent: #c8a96a;
+  --accent-ink: #0b0b0c;
+  --accent-soft: rgb(200 169 106 / 0.14);
+  --positive: #7fae7f;
+  --negative: #d08a80;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 40px -12px rgb(0 0 0 / 0.6);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --canvas: #f7f5f1;
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --line: rgb(20 18 14 / 0.1);
+    --line-strong: rgb(20 18 14 / 0.22);
+    --ink: #16150f;
+    --muted: #6b675e;
+    --faint: #96918a;
+    /* Darkened so it still passes contrast on ivory. */
+    --accent: #8a6d2f;
+    --accent-ink: #ffffff;
+    --accent-soft: rgb(138 109 47 / 0.1);
+    --positive: #4a7c4a;
+    --negative: #9c4a3d;
+    --shadow: 0 1px 2px rgb(20 18 14 / 0.04), 0 12px 32px -16px rgb(20 18 14 / 0.18);
   }
 }
 
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-instrument-serif);
+
+  --shadow-elevated: var(--shadow);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+/* Editorial small-caps label used for section headings and status chips. */
+.eyebrow {
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* Hairline rule that fades out — softer than a full-width border. */
+.rule {
+  height: 1px;
+  background: linear-gradient(to right, var(--line-strong), transparent);
 }
 
 /*
@@ -32,11 +98,36 @@ body {
  */
 @keyframes reel-pan {
   from {
-    transform: scale(1) translate3d(0, 0, 0);
+    transform: scale(1.02) translate3d(0, 0, 0);
   }
   to {
-    transform: scale(1.08) translate3d(-1.5%, -1%, 0);
+    transform: scale(1.1) translate3d(-1.5%, -1%, 0);
   }
+}
+
+/* Sheen that travels across a surface while a clip renders. */
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -45,5 +136,15 @@ body {
     to {
       transform: none;
     }
+  }
+  @keyframes shimmer {
+    from,
+    to {
+      transform: translateX(-100%);
+      opacity: 0;
+    }
+  }
+  .rise {
+    animation: none;
   }
 }

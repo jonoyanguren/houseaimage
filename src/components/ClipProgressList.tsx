@@ -9,70 +9,91 @@ const STATUS_LABEL: Record<ClipStatus, string> = {
   failed: "Error",
 };
 
-const STATUS_STYLE: Record<ClipStatus, string> = {
-  queued: "bg-zinc-500/80",
-  processing: "bg-blue-600/85",
-  completed: "bg-emerald-600/85",
-  failed: "bg-red-600/85",
+const STATUS_TONE: Record<ClipStatus, string> = {
+  queued: "text-faint",
+  processing: "text-accent",
+  completed: "text-positive",
+  failed: "text-negative",
 };
 
 /**
  * Per-clip progress. Each photo is an independent provider job, so the user
- * sees which of them are done instead of one spinner for the whole listing.
+ * sees which scenes are ready instead of one spinner for the whole listing.
  */
 export function ClipProgressList({ clips }: { clips: Clip[] }) {
   if (clips.length === 0) return null;
 
   const done = clips.filter((c) => c.status === "completed").length;
+  const pct = Math.round((done / clips.length) * 100);
 
   return (
-    <div className="flex flex-col gap-3">
-      <p className="text-sm text-foreground/60">
-        {done} de {clips.length} clips listos
-      </p>
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-2.5">
+        <div className="flex items-baseline justify-between">
+          <span className="eyebrow">Renderizando</span>
+          <span className="font-mono text-[11px] tracking-widest text-muted tabular-nums">
+            {String(done).padStart(2, "0")} / {String(clips.length).padStart(2, "0")}
+          </span>
+        </div>
+        <div className="h-px w-full overflow-hidden bg-line">
+          <div
+            className="h-full bg-accent transition-[width] duration-700 ease-out"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
 
-      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+      <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         {[...clips]
           .sort((a, b) => a.index - b.index)
           .map((clip) => (
             <li
               key={clip.clipId}
-              className="relative aspect-square overflow-hidden rounded-lg border border-foreground/10"
+              className="relative aspect-[4/3] overflow-hidden rounded-sm border border-line bg-surface"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={clip.imageUrl}
-                alt={`Clip ${clip.index + 1}`}
-                className={`h-full w-full object-cover transition-opacity ${
-                  clip.status === "completed" ? "opacity-100" : "opacity-50"
+                alt={`Escena ${clip.index + 1}`}
+                className={`h-full w-full object-cover transition-all duration-1000 ${
+                  clip.status === "completed"
+                    ? "scale-100 opacity-100 grayscale-0"
+                    : "scale-[1.02] opacity-65 grayscale"
                 }`}
               />
 
-              <span className="absolute left-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                {clip.index + 1}
-              </span>
-
-              <span
-                className={`absolute right-1.5 top-1.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-white ${
-                  STATUS_STYLE[clip.status]
-                }`}
-              >
-                {STATUS_LABEL[clip.status]}
-              </span>
-
               {clip.status === "processing" && (
-                <div className="absolute inset-x-0 bottom-0 h-1 bg-black/30">
-                  <div
-                    className="h-full bg-blue-500 transition-all duration-500"
-                    style={{ width: `${clip.progress ?? 0}%` }}
-                  />
+                <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                  <div className="h-full w-1/2 animate-[shimmer_2.2s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
                 </div>
               )}
+
+              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2.5 pt-8">
+                <span className="font-mono text-[11px] tracking-widest text-white/70">
+                  {String(clip.index + 1).padStart(2, "0")}
+                </span>
+                <span
+                  className={`text-[10px] uppercase tracking-[0.16em] ${
+                    clip.status === "completed"
+                      ? "text-positive"
+                      : clip.status === "failed"
+                        ? "text-negative"
+                        : clip.status === "processing"
+                          ? "text-accent"
+                          : "text-white/50"
+                  }`}
+                >
+                  {STATUS_LABEL[clip.status]}
+                  {clip.status === "processing" && typeof clip.progress === "number"
+                    ? ` ${clip.progress}%`
+                    : ""}
+                </span>
+              </div>
 
               {clip.status === "failed" && clip.error && (
                 <p
                   title={clip.error}
-                  className="absolute inset-x-0 bottom-0 truncate bg-black/70 px-1.5 py-1 text-[10px] text-red-200"
+                  className="absolute inset-x-0 top-0 truncate bg-black/70 px-3 py-1.5 text-[11px] text-negative"
                 >
                   {clip.error}
                 </p>
@@ -81,5 +102,23 @@ export function ClipProgressList({ clips }: { clips: Clip[] }) {
           ))}
       </ul>
     </div>
+  );
+}
+
+/** Compact one-line summary, for the finished state where the grid is noise. */
+export function ClipSummary({ clips }: { clips: Clip[] }) {
+  const failed = clips.filter((c) => c.status === "failed");
+  if (clips.length === 0) return null;
+
+  return (
+    <p className="text-[13px] text-muted">
+      {clips.length - failed.length} de {clips.length} escenas renderizadas
+      {failed.length > 0 && (
+        <span className={STATUS_TONE.failed}>
+          {" "}
+          · {failed.length} sin completar
+        </span>
+      )}
+    </p>
   );
 }

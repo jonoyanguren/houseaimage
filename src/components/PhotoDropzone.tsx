@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 export interface PhotoItem {
   id: string;
@@ -34,6 +35,9 @@ export function PhotoDropzone({ photos, onChange, disabled }: PhotoDropzoneProps
   );
 
   const removePhoto = (id: string) => {
+    const photo = photos.find((p) => p.id === id);
+    // The object URL is ours to release; leaving it leaks the decoded image.
+    if (photo) URL.revokeObjectURL(photo.previewUrl);
     onChange(photos.filter((p) => p.id !== id));
   };
 
@@ -60,69 +64,137 @@ export function PhotoDropzone({ photos, onChange, disabled }: PhotoDropzoneProps
           if (!disabled) addFiles(e.dataTransfer.files);
         }}
         onClick={() => !disabled && inputRef.current?.click()}
-        className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-10 text-center transition-colors ${
+        className={`group relative flex cursor-pointer flex-col items-center justify-center overflow-hidden rounded-sm border px-8 py-14 text-center transition-all duration-500 ${
           isDragging
-            ? "border-foreground bg-foreground/5"
-            : "border-foreground/20 hover:border-foreground/40"
-        } ${disabled ? "pointer-events-none opacity-50" : ""}`}
+            ? "border-accent bg-accent-soft"
+            : "border-line bg-surface hover:border-line-strong"
+        } ${disabled ? "pointer-events-none opacity-40" : ""}`}
       >
-        <p className="text-sm font-medium">Arrastra tus fotos aquí</p>
-        <p className="mt-1 text-xs text-foreground/60">
-          o haz clic para seleccionar archivos (JPG, PNG)
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden="true"
+          className={`mb-4 h-7 w-7 transition-colors duration-500 ${
+            isDragging ? "text-accent" : "text-faint group-hover:text-muted"
+          }`}
+        >
+          <path
+            d="M3 16.5V6a1.5 1.5 0 0 1 1.5-1.5h15A1.5 1.5 0 0 1 21 6v12a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18v-1.5Zm0 0 4.6-4.2a1.5 1.5 0 0 1 2 0l3.4 3.1m0 0 2.2-2a1.5 1.5 0 0 1 2 0L21 15.4M15 9h.01"
+            stroke="currentColor"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+
+        <p className="font-display text-xl tracking-tight">
+          Arrastra las fotos del inmueble
         </p>
+        <p className="mt-1.5 text-[13px] text-muted">
+          o selecciónalas desde tu equipo · JPG o PNG
+        </p>
+
         <input
           ref={inputRef}
           type="file"
           accept="image/*"
           multiple
           className="hidden"
-          onChange={(e) => addFiles(e.target.files)}
+          onChange={(e) => {
+            addFiles(e.target.files);
+            // Allow re-picking the same file after a removal.
+            e.target.value = "";
+          }}
         />
       </div>
 
       {photos.length > 0 && (
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-          {photos.map((photo, index) => (
-            <div key={photo.id} className="group relative aspect-square overflow-hidden rounded-lg border border-foreground/10">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={photo.previewUrl}
-                alt={`Foto ${index + 1}`}
-                className="h-full w-full object-cover"
-              />
-              <span className="absolute left-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                {index + 1}
-              </span>
-              <div className="absolute inset-x-0 bottom-0 flex justify-between gap-1 bg-black/50 p-1 opacity-0 transition-opacity group-hover:opacity-100">
-                <button
-                  type="button"
-                  disabled={disabled || index === 0}
-                  onClick={() => move(photo.id, -1)}
-                  className="rounded px-1.5 py-0.5 text-xs text-white hover:bg-white/20 disabled:opacity-30"
-                >
-                  ←
-                </button>
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => removePhoto(photo.id)}
-                  className="rounded px-1.5 py-0.5 text-xs text-white hover:bg-white/20"
-                >
-                  Quitar
-                </button>
-                <button
-                  type="button"
-                  disabled={disabled || index === photos.length - 1}
-                  onClick={() => move(photo.id, 1)}
-                  className="rounded px-1.5 py-0.5 text-xs text-white hover:bg-white/20 disabled:opacity-30"
-                >
-                  →
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+        <>
+          <div className="mt-8 flex items-baseline justify-between">
+            <span className="eyebrow">
+              Recorrido · {photos.length} {photos.length === 1 ? "escena" : "escenas"}
+            </span>
+            <span className="text-[13px] text-faint">
+              El orden es el del vídeo final
+            </span>
+          </div>
+
+          <ul className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+            {photos.map((photo, index) => (
+              <li
+                key={photo.id}
+                className="rise group relative aspect-[4/3] overflow-hidden rounded-sm border border-line bg-surface"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={photo.previewUrl}
+                  alt={`Escena ${index + 1}`}
+                  className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.04]"
+                />
+
+                <span className="absolute left-3 top-3 rounded-sm bg-black/45 px-2 py-0.5 font-mono text-[11px] tracking-widest text-white/90 backdrop-blur-sm">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+
+                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-8 opacity-0 transition-opacity duration-300 group-hover:opacity-100 focus-within:opacity-100">
+                  <div className="flex gap-0.5">
+                    <IconButton
+                      label={`Mover la escena ${index + 1} antes`}
+                      disabled={disabled || index === 0}
+                      onClick={() => move(photo.id, -1)}
+                    >
+                      ←
+                    </IconButton>
+                    <IconButton
+                      label={`Mover la escena ${index + 1} después`}
+                      disabled={disabled || index === photos.length - 1}
+                      onClick={() => move(photo.id, 1)}
+                    >
+                      →
+                    </IconButton>
+                  </div>
+
+                  <IconButton
+                    label={`Quitar la escena ${index + 1}`}
+                    disabled={disabled}
+                    onClick={() => removePhoto(photo.id)}
+                  >
+                    ✕
+                  </IconButton>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
+  );
+}
+
+function IconButton({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+      onClick={(e) => {
+        // Guard against a click bubbling to any clickable ancestor.
+        e.stopPropagation();
+        onClick();
+      }}
+      className="flex h-7 w-7 items-center justify-center rounded-sm text-[13px] text-white/80 backdrop-blur-sm transition-colors hover:bg-white/15 hover:text-white disabled:pointer-events-none disabled:opacity-25"
+    >
+      {children}
+    </button>
   );
 }

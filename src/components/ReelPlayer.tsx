@@ -54,14 +54,14 @@ export function ReelPlayer({ reel }: { reel: Reel }) {
       <video
         src={reel.url}
         controls
-        className="w-full rounded-lg border border-foreground/10"
+        className="w-full rounded-sm border border-line shadow-elevated"
       />
     );
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="relative overflow-hidden rounded-lg border border-foreground/10 bg-black">
+    <figure className="rise flex flex-col gap-4">
+      <div className="relative aspect-video overflow-hidden rounded-sm border border-line bg-black shadow-elevated">
         {segment.videoUrl ? (
           <video
             ref={videoRef}
@@ -70,7 +70,7 @@ export function ReelPlayer({ reel }: { reel: Reel }) {
             controls
             playsInline
             onEnded={advance}
-            className="w-full"
+            className="h-full w-full object-cover"
           />
         ) : (
           <>
@@ -79,42 +79,65 @@ export function ReelPlayer({ reel }: { reel: Reel }) {
               key={segment.clipId}
               src={segment.imageUrl}
               alt={`Escena ${segment.index + 1}`}
-              className="w-full animate-[reel-pan_var(--reel-duration)_ease-in-out_forwards]"
+              className="h-full w-full object-cover animate-[reel-pan_var(--reel-duration)_ease-in-out_forwards]"
               style={
                 {
                   "--reel-duration": `${segment.durationSeconds}s`,
                 } as CSSProperties
               }
             />
-            <span className="absolute right-2 top-2 rounded bg-amber-500/90 px-2 py-0.5 text-[10px] font-medium text-black">
-              Simulado — sin credenciales
+            <span className="absolute right-4 top-4 rounded-full border border-white/20 bg-black/50 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-white/80 backdrop-blur-sm">
+              Vista previa simulada
             </span>
           </>
         )}
+
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between bg-gradient-to-t from-black/70 to-transparent px-5 pb-4 pt-16">
+          <span className="font-display text-lg leading-none text-white">
+            Escena {String(segment.index + 1).padStart(2, "0")}
+          </span>
+          <span className="font-mono text-[11px] tracking-widest text-white/60 tabular-nums">
+            {formatTime(segment.startAtSeconds)} /{" "}
+            {formatTime(reel.totalDurationSeconds)}
+          </span>
+        </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="flex flex-1 gap-1">
+      {/* Chapter scrubber: one segment per clip, click to jump. */}
+      <div className="flex items-center gap-4">
+        <div className="flex flex-1 gap-1.5">
           {reel.segments.map((s, index) => (
             <button
               key={s.clipId}
               type="button"
               aria-label={`Ir a la escena ${index + 1}`}
+              aria-current={index === current}
               onClick={() => setCurrent(index)}
-              className={`h-1.5 flex-1 rounded-full transition-colors ${
-                index === current
-                  ? "bg-foreground"
-                  : index < current
-                    ? "bg-foreground/40"
-                    : "bg-foreground/15"
-              }`}
-            />
+              className="group relative h-4 flex-1"
+            >
+              <span
+                className={`absolute inset-x-0 top-1.5 h-px transition-colors duration-300 ${
+                  index === current
+                    ? "bg-accent"
+                    : index < current
+                      ? "bg-line-strong"
+                      : "bg-line group-hover:bg-line-strong"
+                }`}
+              />
+            </button>
           ))}
         </div>
-        <span className="shrink-0 text-xs tabular-nums text-foreground/60">
-          {current + 1}/{reel.segments.length} · {reel.totalDurationSeconds}s
-        </span>
+        <figcaption className="shrink-0 font-mono text-[11px] tracking-widest text-faint tabular-nums">
+          {String(current + 1).padStart(2, "0")}/
+          {String(reel.segments.length).padStart(2, "0")}
+        </figcaption>
       </div>
-    </div>
+    </figure>
   );
+}
+
+function formatTime(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
