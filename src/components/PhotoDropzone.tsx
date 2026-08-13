@@ -2,8 +2,8 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { SceneType } from "@/types/video";
-import { SCENE_LIST, suggestSceneType } from "@/lib/prompts";
+import type { PropertyType, SceneType } from "@/types/video";
+import { scenesForProperty, suggestSceneType } from "@/lib/prompts";
 
 export interface PhotoItem {
   id: string;
@@ -16,12 +16,20 @@ export interface PhotoItem {
 interface PhotoDropzoneProps {
   photos: PhotoItem[];
   onChange: (photos: PhotoItem[]) => void;
+  /** Conditions which scenes are surfaced and how new photos are classified. */
+  propertyType: PropertyType;
   disabled?: boolean;
 }
 
-export function PhotoDropzone({ photos, onChange, disabled }: PhotoDropzoneProps) {
+export function PhotoDropzone({
+  photos,
+  onChange,
+  propertyType,
+  disabled,
+}: PhotoDropzoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const sceneOptions = scenesForProperty(propertyType);
 
   const addFiles = useCallback(
     (fileList: FileList | null) => {
@@ -38,12 +46,12 @@ export function PhotoDropzone({ photos, onChange, disabled }: PhotoDropzoneProps
         id: crypto.randomUUID(),
         file,
         previewUrl: URL.createObjectURL(file),
-        sceneType: suggestSceneType(photos.length + i, total),
+        sceneType: suggestSceneType(photos.length + i, total, propertyType),
       }));
 
       onChange([...photos, ...newPhotos]);
     },
-    [photos, onChange]
+    [photos, onChange, propertyType]
   );
 
   const setSceneType = (id: string, sceneType: SceneType) => {
@@ -187,7 +195,7 @@ export function PhotoDropzone({ photos, onChange, disabled }: PhotoDropzoneProps
                   }
                   className="w-full cursor-pointer rounded-sm border border-line bg-surface px-2.5 py-1.5 text-[12px] text-muted outline-none transition-colors hover:border-line-strong focus:border-line-strong disabled:opacity-40"
                 >
-                  {SCENE_LIST.map((scene) => (
+                  {sceneOptions.map((scene) => (
                     <option key={scene.id} value={scene.id}>
                       {scene.label}
                     </option>

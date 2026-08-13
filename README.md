@@ -38,16 +38,22 @@ Para renders reales:
 cp .env.example .env.local   # y rellena HIGGSFIELD_API_KEY
 ```
 
-## Estilos y escenas
+## Inmuebles, estilos y escenas
 
-El prompt de cada clip se compone de **dos** decisiones, no de una:
+El prompt de cada clip se compone de **tres** decisiones, no de una:
 
 ```
-estilo (todo el reel)  ×  escena (esta foto)  →  prompt final
+estilo (todo el reel) × inmueble (qué edificio) × escena (esta foto) → prompt
 ```
 
-Un solo eje no basta, porque el movimiento correcto depende de la estancia: el
-paneo lateral que favorece una encimera destroza el espejo de un baño.
+Un solo eje no basta: el movimiento correcto depende de la estancia (el paneo
+lateral que favorece una encimera destroza el espejo de un baño) y del tipo de
+inmueble ("orbitar la fachada" no significa nada en un tercer piso).
+
+**Tipo de inmueble** ([`src/lib/prompts/properties.ts`](src/lib/prompts/properties.ts))
+— piso, casa/chalet, ático, finca rústica y obra nueva. Sitúa al modelo, ordena
+los estilos recomendados y decide qué estancias se ofrecen primero. Nunca oculta
+opciones, solo las reordena.
 
 **Estilos** ([`src/lib/prompts/styles.ts`](src/lib/prompts/styles.ts)) — cada
 uno fija también formato y duración, que es la parte con consecuencias:
@@ -106,14 +112,16 @@ src/
     api/styles/route.ts             # catálogo público (sin los prompts)
   components/
     PhotoDropzone.tsx               # drag & drop, reordenar y tipo de escena
+    PropertyPicker.tsx              # elección de tipo de inmueble
     StylePicker.tsx                 # elección de estilo
     ClipProgressList.tsx            # progreso por clip
     ReelPlayer.tsx                  # reproduce el montaje
   lib/
     prompts/
       styles.ts                     # catálogo de estilos
+      properties.ts                 # catálogo de tipos de inmueble
       scenes.ts                     # catálogo de escenas
-      index.ts                      # resolutor estilo × escena → prompt
+      index.ts                      # resolutor de los tres ejes → prompt
     pipeline.ts                     # fan-out, polling, reintentos
     compose.ts                      # montaje y estado derivado del lote
     jobStore.ts                     # lotes en memoria (ver aviso abajo)

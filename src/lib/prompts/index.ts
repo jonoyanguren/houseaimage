@@ -1,13 +1,14 @@
-import type { ResolvedPrompt, SceneType, StyleId } from "@/types/video";
-import { SCENE_PROFILES, isSceneType } from "@/lib/prompts/scenes";
-import { getStyle } from "@/lib/prompts/styles";
+import type {
+  PropertyType,
+  ResolvedPrompt,
+  SceneType,
+  StyleId,
+} from "@/types/video";
+import { SCENE_LIST, SCENE_PROFILES, isSceneType } from "@/lib/prompts/scenes";
+import { STYLE_LIST, getStyle } from "@/lib/prompts/styles";
+import { getProperty } from "@/lib/prompts/properties";
 
-export {
-  SCENE_PROFILES,
-  SCENE_LIST,
-  isSceneType,
-  suggestSceneType,
-} from "@/lib/prompts/scenes";
+export { SCENE_PROFILES, SCENE_LIST, isSceneType } from "@/lib/prompts/scenes";
 export {
   STYLE_PRESETS,
   STYLE_LIST,
@@ -15,6 +16,13 @@ export {
   isStyleId,
   getStyle,
 } from "@/lib/prompts/styles";
+export {
+  PROPERTY_PROFILES,
+  PROPERTY_LIST,
+  DEFAULT_PROPERTY_TYPE,
+  isPropertyType,
+  getProperty,
+} from "@/lib/prompts/properties";
 
 /**
  * Shared constraints appended to every prompt regardless of style.
@@ -27,27 +35,41 @@ const UNIVERSAL_CONSTRAINTS =
   "architectural lines stay perfectly straight, room geometry unchanged, " +
   "furniture and fixtures remain solid and consistent, photorealistic";
 
+export interface BuildPromptInput {
+  styleId?: StyleId | string;
+  sceneType?: SceneType | string;
+  propertyType?: PropertyType | string;
+  /** Free text from the user. */
+  extra?: string;
+}
+
 /**
- * Compose the final prompt for one clip.
+ * Compose the final prompt for one clip from the three axes.
  *
  * Order matters — the model weights early clauses more heavily, so it runs
- * style → scene motion → user's own words → hard constraints:
+ * style → property → scene motion → user's own words → hard constraints:
  *
  * 1. `base`      the overall treatment (how the reel feels)
- * 2. `motion`    what this frame can take (scene override wins over default)
- * 3. `extra`     whatever the user typed, so they can always steer
- * 4. constraints the non-negotiables, last so nothing dilutes them
+ * 2. `context`   what kind of building this is
+ * 3. `motion`    what this frame can take (scene override wins over default)
+ * 4. `extra`     whatever the user typed, so they can always steer
+ * 5. constraints the non-negotiables, last so nothing dilutes them
+ *
+ * The property context sits early and deliberately: it is what stops "orbit
+ * the building exterior" being applied to a third-floor flat.
  *
  * Returns the negative prompt separately: providers that support a dedicated
  * negative field give much better results with it than with "no X" folded into
  * the positive prompt, and `higgsfield.ts` decides how to send it.
  */
-export function buildClipPrompt(
-  styleId: StyleId | string | undefined,
-  sceneType: SceneType | string | undefined,
-  extra?: string
-): ResolvedPrompt {
+export function buildClipPrompt({
+  styleId,
+  sceneType,
+  propertyType,
+  extra,
+}: BuildPromptInput): ResolvedPrompt {
   const style = getStyle(styleId);
+  const property = getProperty(propertyType);
   const scene = isSceneType(sceneType)
     ? SCENE_PROFILES[sceneType]
     : SCENE_PROFILES.generico;
@@ -55,7 +77,7 @@ export function buildClipPrompt(
   const override = style.sceneOverrides?.[scene.id];
   const motion = override ?? scene.motion;
 
-  const parts = [style.base, motion];
+  const parts = [style.base, property.context, motion];
 
   const trimmedExtra = extra?.trim();
   if (trimmedExtra) parts.push(trimmedExtra);
@@ -67,9 +89,69 @@ export function buildClipPrompt(
     negative: style.negative,
     styleId: style.id,
     sceneType: scene.id,
+    propertyType: property.id,
     aspectRatio: style.aspectRatio,
     durationSeconds: style.durationSeconds,
   };
+}
+
+/**
+ * Scenes ordered for a property type: the ones it actually has first, then
+ * everything else. Nothing is removed — a flat in a development can still have
+ * communal areas, and a wrong whitelist is worse than a wrong order.
+ */
+export function scenesForProperty(propertyType: PropertyType | string | undefined) {
+  const property = getProperty(propertyType);
+  const primary = property.primaryScenes;
+
+  return [...SCENE_LIST].sort((a, b) => {
+    const aRank = primary.indexOf(a.id);
+    const bRank = primary.indexOf(b.id);
+    if (aRank !== -1 && bRank !== -1) return aRank - bRank;
+    if (aRank !== -1) return -1;
+    if (bRank !== -1) return 1;
+    return a.order - b.order;
+  });
+}
+
+/**
+ * A first guess so the user never faces an empty selector.
+ *
+ * The heuristic is positional, but the sequence it walks comes from the
+ * property: a listing for a house opens on the façade, a flat opens on the
+ * living room — it has no façade of its own to show. Anything past the first
+ * couple of photos is left neutral rather than guessed, because a wrong scene
+ * produces worse motion than a neutral one.
+ */
+export function suggestSceneType(
+  index: number,
+  total: number,
+  propertyType?: PropertyType | string
+): SceneType {
+  const primary = getProperty(propertyType).primaryScenes;
+
+  if (index < 2) return primary[index] ?? "generico";
+  if (total > 3 && index === total - 1) return primary[2] ?? "generico";
+
+  return "generico";
+}
+
+/** Styles ordered for a property type, recommended ones first. */
+export function stylesForProperty(propertyType: PropertyType | string | undefined) {
+  const recommended = getProperty(propertyType).recommendedStyles;
+
+  return [...STYLE_LIST]
+    .map((style) => ({
+      style,
+      rank: recommended.indexOf(style.id),
+    }))
+    .sort((a, b) => {
+      if (a.rank !== -1 && b.rank !== -1) return a.rank - b.rank;
+      if (a.rank !== -1) return -1;
+      if (b.rank !== -1) return 1;
+      return 0;
+    })
+    .map(({ style, rank }) => ({ style, recommended: rank !== -1 }));
 }
 
 /**

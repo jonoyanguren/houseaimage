@@ -72,11 +72,12 @@ async function submitClip(
   attempts: number
 ): Promise<Clip> {
   const clipId = crypto.randomUUID();
-  const resolved = buildClipPrompt(
-    options?.styleId,
-    photo.sceneType,
-    options?.prompt
-  );
+  const resolved = buildClipPrompt({
+    styleId: options?.styleId,
+    propertyType: options?.propertyType,
+    sceneType: photo.sceneType,
+    extra: options?.prompt,
+  });
 
   const base = {
     clipId,

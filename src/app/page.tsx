@@ -2,19 +2,34 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
-import type { StyleId } from "@/types/video";
+import type { PropertyType, StyleId } from "@/types/video";
 import { PhotoDropzone, type PhotoItem } from "@/components/PhotoDropzone";
+import { PropertyPicker } from "@/components/PropertyPicker";
 import { StylePicker } from "@/components/StylePicker";
 import { ClipProgressList, ClipSummary } from "@/components/ClipProgressList";
 import { ReelPlayer } from "@/components/ReelPlayer";
 import { useVideoGeneration } from "@/lib/useVideoGeneration";
-import { DEFAULT_STYLE_ID } from "@/lib/prompts";
+import { DEFAULT_PROPERTY_TYPE, stylesForProperty } from "@/lib/prompts";
 
 export default function Home() {
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
-  const [styleId, setStyleId] = useState<StyleId>(DEFAULT_STYLE_ID);
+  const [propertyType, setPropertyType] =
+    useState<PropertyType>(DEFAULT_PROPERTY_TYPE);
+  const [styleId, setStyleId] = useState<StyleId>(
+    () => stylesForProperty(DEFAULT_PROPERTY_TYPE)[0].style.id
+  );
   const [prompt, setPrompt] = useState("");
   const { state, generate, retryFailed, reset } = useVideoGeneration();
+
+  /**
+   * Changing the property type moves the style to that property's best match.
+   * Leaving a drone reel selected after switching to a flat would silently
+   * produce the wrong video.
+   */
+  const changePropertyType = (next: PropertyType) => {
+    setPropertyType(next);
+    setStyleId(stylesForProperty(next)[0].style.id);
+  };
 
   const isBusy = state.stage === "uploading" || state.stage === "generating";
   const batch = state.batch;
@@ -47,20 +62,42 @@ export default function Home() {
         </section>
 
         <div className="flex flex-col gap-20 py-20">
-          <Step number="01" title="Selecciona las fotografías">
-            <PhotoDropzone photos={photos} onChange={setPhotos} disabled={isBusy} />
+          <Step
+            number="01"
+            title="Tipo de inmueble"
+            hint="Condiciona el estilo, las estancias y el encuadre"
+          >
+            <PropertyPicker
+              value={propertyType}
+              onChange={changePropertyType}
+              disabled={isBusy}
+            />
           </Step>
 
-          <Step
-            number="02"
-            title="Elige el estilo"
-            hint="Define el movimiento, el formato y la duración de cada plano"
-          >
-            <StylePicker value={styleId} onChange={setStyleId} disabled={isBusy} />
+          <Step number="02" title="Selecciona las fotografías">
+            <PhotoDropzone
+              photos={photos}
+              onChange={setPhotos}
+              propertyType={propertyType}
+              disabled={isBusy}
+            />
           </Step>
 
           <Step
             number="03"
+            title="Elige el estilo"
+            hint="Define el movimiento, el formato y la duración de cada plano"
+          >
+            <StylePicker
+              value={styleId}
+              propertyType={propertyType}
+              onChange={setStyleId}
+              disabled={isBusy}
+            />
+          </Step>
+
+          <Step
+            number="04"
             title="Matices"
             hint="Opcional · se suma al estilo elegido"
           >
@@ -78,13 +115,17 @@ export default function Home() {
             </p>
           </Step>
 
-          <Step number="04" title="Genera el recorrido">
+          <Step number="05" title="Genera el recorrido">
             <div className="flex flex-col gap-8">
               <button
                 type="button"
                 disabled={photos.length === 0 || isBusy}
                 onClick={() =>
-                  generate(photos, { styleId, prompt: prompt || undefined })
+                  generate(photos, {
+                    styleId,
+                    propertyType,
+                    prompt: prompt || undefined,
+                  })
                 }
                 className="group inline-flex w-fit items-center gap-3 rounded-full bg-accent px-8 py-3.5 text-[13px] font-medium uppercase tracking-[0.14em] text-accent-ink transition-all duration-300 hover:gap-4 disabled:pointer-events-none disabled:opacity-25"
               >

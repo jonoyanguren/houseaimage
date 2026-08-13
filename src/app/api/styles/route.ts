@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { SCENE_LIST, STYLE_LIST, DEFAULT_STYLE_ID } from "@/lib/prompts";
+import {
+  DEFAULT_PROPERTY_TYPE,
+  DEFAULT_STYLE_ID,
+  PROPERTY_LIST,
+  SCENE_LIST,
+  STYLE_LIST,
+} from "@/lib/prompts";
 
 /**
  * The prompt catalogue, as JSON for the client.
@@ -16,6 +22,17 @@ export const dynamic = "force-static";
 export function GET() {
   return NextResponse.json({
     defaultStyleId: DEFAULT_STYLE_ID,
+    defaultPropertyType: DEFAULT_PROPERTY_TYPE,
+    // `context` is withheld for the same reason as the style prompts.
+    properties: PROPERTY_LIST.map(
+      ({ id, label, hint, recommendedStyles, primaryScenes }) => ({
+        id,
+        label,
+        hint,
+        recommendedStyles,
+        primaryScenes,
+      })
+    ),
     styles: STYLE_LIST.map(
       ({ id, label, tagline, bestFor, aspectRatio, durationSeconds }) => ({
         id,

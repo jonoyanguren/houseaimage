@@ -29,6 +29,9 @@ export type StyleId =
   | "editorial"
   | "lifestyle";
 
+/** Kind of property being marketed. See `src/lib/prompts/properties.ts`. */
+export type PropertyType = "piso" | "casa" | "atico" | "rustico" | "obraNueva";
+
 /** What a given photo shows. See `src/lib/prompts/scenes.ts`. */
 export type SceneType =
   | "fachada"
@@ -62,6 +65,21 @@ export interface StylePreset {
   sceneOverrides?: Partial<Record<SceneType, string>>;
 }
 
+/**
+ * A property profile. `context` is sent to the model; the rest drives what the
+ * UI offers and in what order.
+ */
+export interface PropertyProfile {
+  id: PropertyType;
+  label: string;
+  hint: string;
+  context: string;
+  /** Styles that suit this property, best first. */
+  recommendedStyles: readonly StyleId[];
+  /** Scenes worth surfacing first. Never a whitelist — nothing is hidden. */
+  primaryScenes: readonly SceneType[];
+}
+
 /** A scene profile: what the photo shows and how the camera should move. */
 export interface SceneProfile {
   id: SceneType;
@@ -78,6 +96,7 @@ export interface ResolvedPrompt {
   negative: string;
   styleId: StyleId;
   sceneType: SceneType;
+  propertyType: PropertyType;
   aspectRatio: string;
   durationSeconds: number;
 }
@@ -87,6 +106,8 @@ export interface ClipOptions {
   preset?: string;
   /** Chosen style. Falls back to the default preset when absent or unknown. */
   styleId?: StyleId;
+  /** Kind of property, which contextualises every clip in the batch. */
+  propertyType?: PropertyType;
   /** Free-text nuance from the user, folded into every clip's prompt. */
   prompt?: string;
   /** Overrides the style's aspect ratio when set. */

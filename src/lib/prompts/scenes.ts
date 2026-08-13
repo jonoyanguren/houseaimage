@@ -123,18 +123,3 @@ export const SCENE_LIST: SceneProfile[] = Object.values(SCENE_PROFILES);
 export function isSceneType(value: unknown): value is SceneType {
   return typeof value === "string" && value in SCENE_PROFILES;
 }
-
-/**
- * A first guess so the user never faces an empty selector.
- *
- * The heuristic is only positional — the first photo of a listing is almost
- * always the exterior or the main room, and the last is often the terrace or
- * the view. Everything in between is left neutral rather than guessed wrong,
- * because a wrong scene produces worse motion than a neutral one.
- */
-export function suggestSceneType(index: number, total: number): SceneType {
-  if (index === 0) return "fachada";
-  if (index === 1) return "salon";
-  if (total > 3 && index === total - 1) return "terraza";
-  return "generico";
-}

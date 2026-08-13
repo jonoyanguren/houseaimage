@@ -1,28 +1,50 @@
 ---
 name: video-styles
-description: Catálogo de prompts de houseaimage — estilos de vídeo (cinematográfico, dron, dinámico, visita guiada, editorial, lifestyle) y tipos de escena por estancia. Úsala SIEMPRE antes de tocar src/lib/prompts/, al añadir o afinar un estilo o una escena, al cambiar formato o duración, y cuando los vídeos salgan con movimiento inadecuado, arquitectura deformada, ritmo equivocado o poco vendibles. También para decidir qué fotos descartar y en qué orden montar el recorrido.
+description: Catálogo de prompts de houseaimage — tipo de inmueble (piso, casa/chalet, ático, finca, obra nueva), estilos de vídeo (cinematográfico, dron, dinámico, visita guiada, editorial, lifestyle) y tipos de escena por estancia. Úsala SIEMPRE antes de tocar src/lib/prompts/, al añadir o afinar un estilo, una escena o un tipo de inmueble, al cambiar formato o duración, y cuando los vídeos salgan con movimiento inadecuado, arquitectura deformada, ritmo equivocado o poco vendibles. También para decidir qué fotos descartar y en qué orden montar el recorrido.
 ---
 
-# Catálogo de estilos y escenas
+# Catálogo de inmuebles, estilos y escenas
 
-## Dos ejes, no una lista
+## Tres ejes, no una lista
 
-El prompt de cada clip se compone de **dos** decisiones independientes:
+El prompt de cada clip se compone de **tres** decisiones independientes:
 
 ```
-estilo (todo el reel)  ×  escena (esta foto)  →  prompt final
+estilo (todo el reel) × inmueble (qué edificio) × escena (esta foto) → prompt
 ```
 
-Un solo eje no basta. El estilo dice cómo se siente el vídeo entero; la escena
-dice qué aguanta ese fotograma concreto. Un paneo lateral que favorece una
-encimera destroza el espejo de un baño, así que se eligen por separado y se
-combinan en `buildClipPrompt`.
+Un solo eje no basta. El estilo dice cómo se siente el vídeo; el inmueble dice
+en qué clase de edificio estamos; la escena dice qué aguanta ese fotograma. El
+paneo lateral que favorece una encimera destroza el espejo de un baño, y
+"orbitar la fachada" no significa nada en un tercero sin ascensor. Se eligen por
+separado y se combinan en `buildClipPrompt`.
 
 | Archivo | Contiene |
 | --- | --- |
 | `src/lib/prompts/styles.ts` | Los 6 estilos: `base`, `negative`, formato, duración, overrides. |
+| `src/lib/prompts/properties.ts` | Los 5 tipos de inmueble: `context`, estilos y escenas recomendados. |
 | `src/lib/prompts/scenes.ts` | Los 13 tipos de escena: `motion` y orden recomendado. |
 | `src/lib/prompts/index.ts` | El resolutor y las restricciones universales. |
+
+## Qué hace el tipo de inmueble
+
+Solo una de sus tres funciones es texto de prompt:
+
+1. **`context`** — cláusula corta que sitúa al modelo ("apartment interior in a
+   residential building"). Sin ella, el mismo movimiento de fachada se aplica a
+   un piso, donde no hay edificio que orbitar.
+2. **`recommendedStyles`** — un reel de dron es la elección obvia en una finca y
+   casi inútil en un piso de dos habitaciones. Ordena el selector y marca
+   "Recomendado".
+3. **`primaryScenes`** — un piso rara vez tiene piscina o jardín. Ordena el
+   desplegable de escenas y alimenta la preclasificación de cada foto.
+
+**Nunca es una lista blanca.** Las escenas se reordenan, jamás se ocultan: un
+piso en una promoción sí puede tener zonas comunes, y una lista blanca
+equivocada es peor que un orden equivocado.
+
+Cambiar de tipo de inmueble mueve el estilo al primero recomendado. Dejar
+seleccionado "dron" al pasar a piso produciría el vídeo equivocado en silencio.
 
 ## Los prompts van en inglés. Siempre.
 
@@ -47,7 +69,8 @@ Nunca traduzcas los primeros aunque la interfaz esté en español.
    prompt real mucho mejor que un "no X" metido en el positivo.
 
 El orden de composición importa, porque el modelo pesa más lo que va primero:
-`base` → `motion` → texto del usuario → restricciones.
+`base` → `context` del inmueble → `motion` de la escena → texto del usuario →
+restricciones.
 
 ## Overrides: cuándo hacen falta
 
@@ -76,12 +99,21 @@ Elegir "dinámico" es también elegir 9:16. Por eso la tarjeta del selector
 enseña formato y duración: descubrirlo después de renderizar cuesta créditos.
 Si añades un estilo, piensa dónde se va a publicar el vídeo.
 
+## Añadir un tipo de inmueble
+
+1. Añade su `id` a `PropertyType` en `src/types/video.ts`.
+2. Añade la entrada en `PROPERTY_PROFILES`, con `context` en inglés y las listas
+   de estilos y escenas ordenadas por relevancia.
+
+La UI se genera sola desde `PROPERTY_LIST`, `stylesForProperty` y
+`scenesForProperty`.
+
 ## Qué NO se expone al cliente
 
-`GET /api/styles` sirve el catálogo sin `base`, `negative`, `motion` ni
-`sceneOverrides`. Ese texto es el oficio del producto y no debe viajar al
-navegador. Si añades un campo que lee el modelo, **no lo añadas al select del
-endpoint**.
+`GET /api/styles` sirve el catálogo sin `base`, `negative`, `motion`,
+`sceneOverrides` ni `context`. Ese texto es el oficio del producto y no debe
+viajar al navegador. Si añades un campo que lee el modelo, **no lo añadas al
+select del endpoint**.
 
 ## Fotos que conviene descartar
 

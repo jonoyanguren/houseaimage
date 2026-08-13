@@ -1,7 +1,7 @@
 "use client";
 
-import type { StyleId } from "@/types/video";
-import { STYLE_LIST } from "@/lib/prompts";
+import type { PropertyType, StyleId } from "@/types/video";
+import { stylesForProperty } from "@/lib/prompts";
 
 /**
  * Style chooser.
@@ -10,13 +10,18 @@ import { STYLE_LIST } from "@/lib/prompts";
  * the format is the consequential part of the choice: picking "dinámico" also
  * picks 9:16, which is right for a Reel and wrong for a portal listing. Hiding
  * that until after the render wastes the user's credits.
+ *
+ * Ordering follows the property type — a drone reel leads for a country
+ * property and sinks for a one-bedroom flat — but nothing is ever removed.
  */
 export function StylePicker({
   value,
+  propertyType,
   onChange,
   disabled,
 }: {
   value: StyleId;
+  propertyType: PropertyType;
   onChange: (styleId: StyleId) => void;
   disabled?: boolean;
 }) {
@@ -25,7 +30,7 @@ export function StylePicker({
       <legend className="sr-only">Estilo del vídeo</legend>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {STYLE_LIST.map((style) => {
+        {stylesForProperty(propertyType).map(({ style, recommended }) => {
           const selected = style.id === value;
 
           return (
@@ -47,11 +52,18 @@ export function StylePicker({
               />
 
               <div className="flex items-baseline justify-between gap-3">
-                <span className="font-display text-lg leading-none tracking-tight">
-                  {style.label}
+                <span className="flex items-baseline gap-2">
+                  <span className="font-display text-lg leading-none tracking-tight">
+                    {style.label}
+                  </span>
+                  {recommended && (
+                    <span className="text-[10px] uppercase tracking-[0.16em] text-accent">
+                      Recomendado
+                    </span>
+                  )}
                 </span>
                 <span
-                  className={`font-mono text-[10px] tracking-widest ${
+                  className={`shrink-0 font-mono text-[10px] tracking-widest ${
                     selected ? "text-accent" : "text-faint"
                   }`}
                 >
