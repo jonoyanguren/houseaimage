@@ -249,11 +249,18 @@ export interface Reel {
   segments: ReelSegment[];
   totalDurationSeconds: number;
   /**
-   * Set only by a stitching strategy that produces a single downloadable file.
-   * The default playlist strategy leaves this undefined and the client plays
-   * the segments back to back.
+   * The finished, downloadable file — the thing the customer actually buys and
+   * sends on WhatsApp or uploads to a portal. Undefined while only the
+   * playlist exists.
    */
   url?: string;
+  /** True while the server is assembling that file. */
+  stitching?: boolean;
+  /**
+   * Set when assembly failed. Not fatal: the playlist still plays, so the user
+   * keeps a watchable reel and only loses the download.
+   */
+  stitchError?: string;
 }
 
 export interface Batch {

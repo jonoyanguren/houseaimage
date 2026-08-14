@@ -63,6 +63,16 @@ export function useVideoGeneration() {
           return;
         }
 
+        // Rendering is done but the downloadable file is still being
+        // assembled. Show the playlist now — it is already watchable — and
+        // keep polling so the download appears when it is ready.
+        if (batch.reel?.stitching) {
+          setState({ stage: "done", batch });
+          interval = nextInterval(interval);
+          pollTimer.current = setTimeout(tick, interval);
+          return;
+        }
+
         if (batch.status === "failed") {
           setState({
             stage: "error",

@@ -28,6 +28,9 @@ function extensionFor(mimeType: string): string {
   if (subtype === "webp") return "webp";
   if (subtype === "avif") return "avif";
   if (subtype === "heic" || subtype === "heif") return "heic";
+  // The assembled reel comes back through the same interface as the photos.
+  if (subtype === "mp4") return "mp4";
+  if (subtype === "webm") return "webm";
 
   return "jpg";
 }

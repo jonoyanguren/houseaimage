@@ -61,12 +61,47 @@ export function composeReel(
   };
 }
 
-/** Recompute the derived fields of a batch after its clips changed. */
+/**
+ * Two reels cover the same footage, so an already-assembled file is still
+ * valid for the new one.
+ *
+ * Compared by the clips involved and the video each one produced — a retry
+ * that replaces a clip changes the footage and must invalidate the download,
+ * while an ordinary poll that changes nothing must not.
+ */
+function sameFootage(a: Reel, b: Reel): boolean {
+  if (a.segments.length !== b.segments.length) return false;
+  return a.segments.every((segment, i) => {
+    const other = b.segments[i];
+    return segment.clipId === other.clipId && segment.videoUrl === other.videoUrl;
+  });
+}
+
+/**
+ * Recompute the derived fields of a batch after its clips changed.
+ *
+ * The reel is rebuilt from scratch every time, which would throw away the
+ * assembled MP4 on the very next poll — so the stitch fields are carried
+ * across whenever the footage is unchanged.
+ */
 export function withDerivedState(batch: Batch, clips: Clip[]): Batch {
+  const reel = composeReel(clips, batch.options);
+
+  const carried =
+    reel && batch.reel && sameFootage(reel, batch.reel)
+      ? {
+          ...reel,
+          strategy: batch.reel.strategy,
+          url: batch.reel.url,
+          stitching: batch.reel.stitching,
+          stitchError: batch.reel.stitchError,
+        }
+      : reel;
+
   return {
     ...batch,
     clips,
     status: deriveBatchStatus(clips),
-    reel: composeReel(clips, batch.options),
+    reel: carried,
   };
 }

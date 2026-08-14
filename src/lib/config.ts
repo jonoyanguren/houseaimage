@@ -61,5 +61,14 @@ export const CLIP_TIMEOUT_MS = intFromEnv("CLIP_TIMEOUT_MINUTES", 10, 1, 120) * 
 /** Assumed clip length when the provider doesn't tell us, used for timeline maths. */
 export const DEFAULT_CLIP_SECONDS = intFromEnv("DEFAULT_CLIP_SECONDS", 5, 2, 15);
 
+/**
+ * How long the assembly of the final file may take before we abandon it.
+ *
+ * Re-encoding a dozen clips is minutes of CPU, not seconds, but a run that
+ * never ends would pin a core for the rest of the process's life.
+ */
+export const STITCH_TIMEOUT_MS =
+  intFromEnv("STITCH_TIMEOUT_MINUTES", 10, 1, 60) * 60_000;
+
 /** Batches older than this are dropped from the in-memory store. */
 export const BATCH_TTL_MS = intFromEnv("BATCH_TTL_MINUTES", 60, 5, 1440) * 60_000;

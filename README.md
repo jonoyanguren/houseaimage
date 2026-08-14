@@ -87,8 +87,12 @@ inglés mucho mejor) y no debe viajar al navegador.
    clips no terminados y reintenta los fallidos.
 5. Cuando todos terminan, [`compose.ts`](src/lib/compose.ts) construye el
    *reel* y [`ReelPlayer`](src/components/ReelPlayer.tsx) lo reproduce
-   encadenando los clips.
-6. Si quedaron clips fallidos, `POST /api/generate/[batchId]` reintenta **solo
+   encadenando los clips, ya visible al instante.
+6. En paralelo, [`stitch`](src/lib/stitch) codifica en segundo plano el **MP4
+   descargable** — el fichero que el cliente manda por WhatsApp o sube a un
+   portal. Aparece un botón de descarga cuando está listo. Si no hay ffmpeg en
+   el host, el recorrido sigue siendo reproducible y solo falta el fichero.
+7. Si quedaron clips fallidos, `POST /api/generate/[batchId]` reintenta **solo
    esos**, sin volver a pagar los que ya salieron.
 
 ## Estados de un lote
@@ -129,7 +133,10 @@ src/
       policy.ts                     # qué merece reintento y cuándo
       state.ts                      # estado del lote
       serialize.ts                  # qué puede devolver la API
-    compose.ts                      # montaje del vídeo
+    compose.ts                      # timeline del recorrido
+    stitch/                         # el MP4 descargable
+      index.ts                      # selección de backend
+      ffmpeg.ts                     # codificación real
     providers/                      # backends de vídeo
       index.ts                      # selección de proveedor
       higgsfield.ts                 # proveedor real
@@ -164,6 +171,10 @@ prueba. No necesitan navegador, red ni credenciales.
 Hay dos que conviene no borrar: uno comprueba que el prompt compuesto **nunca**
 sale por la API, y otro que un fallo permanente no se reintenta.
 
+El test de montaje sí ejecuta ffmpeg de verdad: junta tres clips que discrepan
+en resolución, fotogramas y duración, que es lo que devuelve un modelo de vídeo
+job a job. Se salta solo si el host no tiene ffmpeg.
+
 ## Configuración
 
 Todo en [`src/lib/config.ts`](src/lib/config.ts), ajustable por entorno. Los
@@ -180,6 +191,8 @@ que importan:
 | `MAX_CLIP_ATTEMPTS` | 2 | Reintentos automáticos por clip. |
 | `RETRY_BACKOFF_SECONDS` | 15 | Espera antes de reintentar, doblándose en cada intento. |
 | `CLIP_TIMEOUT_MINUTES` | 10 | A partir de aquí se da por perdido un clip atascado. |
+| `STITCH_DRIVER` | auto | `ffmpeg` o `none`. Sin valor: ffmpeg si está disponible. |
+| `FFMPEG_PATH` | `ffmpeg` | Ruta al binario si no está en el PATH. |
 | `MOCK_FAILURE_RATE` | 0 | Fracción de fallos simulados, para probar `partial` y reintentos. |
 
 Para ver el camino de fallo:
@@ -205,7 +218,10 @@ MOCK_FAILURE_RATE=0.4 npm run dev
   que ser públicas de verdad.
 - **No hay autenticación**: cualquiera que llegue a la URL puede gastar tus
   créditos. Hace falta login y control de consumo antes de abrirlo.
-- **El montaje es una playlist**, no un fichero. El cliente encadena los clips.
-  Para un MP4 descargable hace falta concatenar de verdad (ffmpeg en un worker,
-  o un servicio tipo Shotstack/Creatomate/Mux); el hueco está marcado en
-  [`compose.ts`](src/lib/compose.ts).
+- **El montaje corre en segundo plano dentro del proceso web.** Sobrevive en un
+  servidor de larga vida, pero en serverless lo matan a mitad de la
+  codificación: allí hace falta una cola y un worker. El hueco es
+  [`src/lib/stitch`](src/lib/stitch).
+- **El host necesita un ffmpeg con libx264.** Sin él se cae a VP8/WebM, que es
+  peor entregable: WhatsApp y varios portales lo manejan mal. Sin ffmpeg
+  ninguno, el usuario se queda con el recorrido reproducible pero sin fichero.

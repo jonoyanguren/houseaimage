@@ -158,7 +158,14 @@ export function PhotoDropzone({
                     {String(index + 1).padStart(2, "0")}
                   </span>
 
-                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-8 opacity-0 transition-opacity duration-300 group-hover:opacity-100 focus-within:opacity-100">
+                  {/*
+                    Revealed on hover on a pointer device, but always visible
+                    where there is no hover to begin with. A phone showed the
+                    photos with no hint that they could be reordered or
+                    removed at all — and half the output formats here are
+                    vertical, so the phone is the likely device.
+                  */}
+                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-8 transition-opacity duration-300 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-within:opacity-100">
                     <div className="flex gap-0.5">
                       <IconButton
                         label={`Mover la escena ${index + 1} antes`}
@@ -231,7 +238,8 @@ function IconButton({
         e.stopPropagation();
         onClick();
       }}
-      className="flex h-7 w-7 items-center justify-center rounded-sm text-[13px] text-white/80 backdrop-blur-sm transition-colors hover:bg-white/15 hover:text-white disabled:pointer-events-none disabled:opacity-25"
+      // 40px minimum on touch: a 28px target is hard to hit with a thumb.
+      className="flex h-10 w-10 items-center justify-center rounded-sm text-[13px] text-white/80 backdrop-blur-sm transition-colors hover:bg-white/15 hover:text-white disabled:pointer-events-none disabled:opacity-25 [@media(hover:hover)]:h-7 [@media(hover:hover)]:w-7"
     >
       {children}
     </button>

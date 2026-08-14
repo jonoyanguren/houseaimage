@@ -49,13 +49,32 @@ export function ReelPlayer({ reel }: { reel: Reel }) {
 
   if (!segment) return null;
 
+  // The assembled file is the thing the customer actually takes away, so when
+  // it exists it replaces the playlist entirely.
   if (reel.url) {
     return (
-      <video
-        src={reel.url}
-        controls
-        className="w-full rounded-sm border border-line shadow-elevated"
-      />
+      <figure className="rise flex flex-col gap-4">
+        <video
+          src={reel.url}
+          controls
+          playsInline
+          className="w-full rounded-sm border border-line shadow-elevated"
+        />
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <figcaption className="text-[13px] text-muted">
+            Vídeo completo · {reel.segments.length} escenas ·{" "}
+            {formatTime(reel.totalDurationSeconds)}
+          </figcaption>
+          <a
+            href={reel.url}
+            download="video-inmueble.mp4"
+            className="inline-flex items-center gap-2 rounded-full bg-accent px-6 py-2.5 text-[13px] font-medium uppercase tracking-[0.14em] text-accent-ink transition-opacity hover:opacity-90"
+          >
+            Descargar MP4
+            <span aria-hidden="true">↓</span>
+          </a>
+        </div>
+      </figure>
     );
   }
 
@@ -132,6 +151,21 @@ export function ReelPlayer({ reel }: { reel: Reel }) {
           {String(reel.segments.length).padStart(2, "0")}
         </figcaption>
       </div>
+
+      {reel.stitching && (
+        <p className="flex items-center gap-2 text-[13px] text-muted">
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+          Montando el vídeo descargable…
+        </p>
+      )}
+
+      {reel.stitchError && (
+        // Losing the download is not losing the reel — say exactly that.
+        <p className="text-[13px] text-muted">
+          No se pudo montar el fichero descargable. El recorrido de arriba sigue
+          siendo válido.
+        </p>
+      )}
     </figure>
   );
 }

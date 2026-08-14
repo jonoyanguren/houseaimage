@@ -13,6 +13,7 @@ import { isSettled } from "@/lib/engine/state";
 import { adoptRetry, nextClipState, onPollError } from "@/lib/engine/transitions";
 import { getBatch, saveBatch, updateBatch } from "@/lib/jobStore";
 import { withLock } from "@/lib/lock";
+import { maybeStartStitching } from "@/lib/engine/stitching";
 import { buildClipPrompt, isSceneType } from "@/lib/prompts";
 import {
   CREATE_CONCURRENCY,
@@ -192,7 +193,16 @@ export function refreshBatch(batchId: string): Promise<Batch | undefined> {
     // Anything not settled: still running, or failed with an attempt left.
     // Completed clips are never re-polled.
     const pending = batch.clips.filter((clip) => !isSettled(clip));
-    if (pending.length === 0) return batch;
+    // Already finished rendering, but the downloadable file may still be due —
+    // a batch that settled before stitching existed, or a poll that lost the
+    // race with the one that finished it.
+    if (pending.length === 0) {
+      const { batch: marked, start } = await maybeStartStitching(batch);
+      const saved = await updateBatch(marked);
+      // Only after the save: the background job reads the store.
+      start?.();
+      return saved;
+    }
 
     const provider = getVideoProvider();
 
@@ -203,7 +213,11 @@ export function refreshBatch(batchId: string): Promise<Batch | undefined> {
     const byClipId = new Map(refreshed.map((clip) => [clip.clipId, clip]));
     const clips = batch.clips.map((clip) => byClipId.get(clip.clipId) ?? clip);
 
-    return updateBatch(withDerivedState(batch, clips));
+    const next = withDerivedState(batch, clips);
+    const { batch: marked, start } = await maybeStartStitching(next);
+    const saved = await updateBatch(marked);
+    start?.();
+    return saved;
   });
 }
 
