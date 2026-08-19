@@ -179,7 +179,7 @@ export function PhotoDropzone({
           />
         </svg>
 
-        <p className="text-title font-medium tracking-tight">
+        <p className="headline text-title">
           Arrastra las fotos del inmueble
         </p>
         <p className="mt-1.5 text-small text-muted">

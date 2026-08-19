@@ -13,8 +13,8 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 export const alt = "houseaimage · Estudio de vídeo inmobiliario";
 
-const CANVAS = "#08080a";
-const INK = "#eceae7";
+const CANVAS = "#000000";
+const INK = "#f2f0ed";
 const ACCENT = "#c8a96a";
 const MUTED = "#a09c94";
 

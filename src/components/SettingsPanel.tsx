@@ -80,7 +80,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         className="rise relative flex h-full w-full max-w-md flex-col border-l border-line bg-canvas outline-none"
       >
         <header className="flex items-center justify-between border-b border-line px-6 py-4">
-          <h2 className="text-lead font-medium tracking-tight">Ajustes</h2>
+          <h2 className="headline text-lead">Ajustes</h2>
           <button
             type="button"
             onClick={onClose}

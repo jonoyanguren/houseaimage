@@ -51,12 +51,15 @@ export function Studio() {
     <div className="pb-24">
       <section className="border-b border-line py-12 sm:py-16">
         <span className="eyebrow">Estudio de vídeo inmobiliario</span>
-        <h1 className="mt-4 max-w-2xl text-section font-medium tracking-[-0.02em] sm:text-display">
+        <h1 className="display mt-5 max-w-3xl text-section sm:text-display">
           De las fotos del anuncio{" "}
-          {/* The one serif on the screen. Used once, it reads as deliberate. */}
-          <span className="flourish text-accent">al vídeo del inmueble</span>
+          {/*
+            The accent does the work a serif used to do, and the jump from the
+            10px label above to this is where the whole design lives.
+          */}
+          <span className="text-accent">al vídeo del inmueble</span>
         </h1>
-        <p className="mt-5 max-w-md text-body leading-relaxed text-muted">
+        <p className="mt-6 max-w-md text-body leading-relaxed text-muted">
           Cada fotografía se convierte en un plano con movimiento de cámara. Los
           planos se montan en un único recorrido, en el orden que elijas.
         </p>
@@ -241,7 +244,7 @@ function Step({
     <section className="grid gap-5 border-t border-line-faint pt-8 sm:grid-cols-[auto_1fr] sm:gap-10">
       <div className="sm:w-36">
         <span className="numeric text-micro text-accent">{number}</span>
-        <h2 className="mt-2 text-lead font-medium tracking-tight">{title}</h2>
+        <h2 className="headline mt-2 text-lead">{title}</h2>
         {hint && (
           <p className="mt-1.5 text-label leading-relaxed text-faint">{hint}</p>
         )}

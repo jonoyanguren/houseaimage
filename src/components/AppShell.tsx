@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { PublicSettings } from "@/types/settings";
 import { Wordmark } from "@/components/brand/Mark";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsProvider, useSettingsContext } from "@/lib/settingsContext";
 
 /**
@@ -46,7 +47,9 @@ function Shell({ children }: { children: ReactNode }) {
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-6 py-3.5 sm:px-8">
           <Wordmark />
 
-          <div className="flex items-center gap-2 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <ThemeToggle />
+
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}

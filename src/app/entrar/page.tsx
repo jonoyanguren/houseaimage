@@ -63,10 +63,10 @@ function AccessForm() {
       <div className="w-full max-w-sm">
         <Wordmark />
 
-        <h1 className="mt-10 text-section font-medium leading-tight tracking-tight">
+        <h1 className="display mt-10 text-section">
           Estudio de vídeo
           <br />
-          <span className="flourish text-accent">inmobiliario</span>
+          <span className="text-accent">inmobiliario</span>
         </h1>
 
         <p className="mt-4 text-body leading-relaxed text-muted">

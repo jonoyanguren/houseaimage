@@ -35,7 +35,7 @@ export async function renderEndCard(
           alignItems: "center",
           justifyContent: "center",
           gap: unit * 3,
-          background: "#08080a",
+          background: "#000000",
           padding: unit * 8,
         }}
       >
@@ -52,7 +52,7 @@ export async function renderEndCard(
         {brand.agencyName ? (
           <span
             style={{
-              color: "#eceae7",
+              color: "#f2f0ed",
               fontSize: unit * 7,
               textAlign: "center",
               lineHeight: 1.15,

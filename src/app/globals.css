@@ -1,77 +1,88 @@
 @import "tailwindcss";
 
 /*
- * Design tokens — "instrumento de precisión".
+ * Design tokens — "instrumento de precisión", en negro.
  *
- * The register is a professional tool, not a brochure: a colour grading suite
- * or an editing desk rather than a printed catalogue. Luxury here comes from
- * precision — hairlines, a strict type scale, numerals that never shift — and
- * the brass is the one thing allowed to be beautiful.
+ * The register is a professional tool seen in a graded room: a colour suite or
+ * an editing desk, not a brochure and not a SaaS panel. Luxury comes from
+ * precision and from contrast — hairlines, a short type scale with a violent
+ * jump between its ends, numerals that never shift — and the brass is the one
+ * thing allowed to be beautiful.
  *
- * Dark is the primary look, because footage is graded in a dark room and a
- * bright chrome competes with the imagery. Light is a full peer: every token
- * below is redefined for it, so nothing borrows a colour from the other theme.
+ * **Dark is not a preference here, it is the product.** It used to follow the
+ * operating system, which meant an ivory interface for anyone whose machine
+ * was set to light — the worst version of this design and the one nobody
+ * chose. Light is now opt-in, through the toggle in the header, and it stamps
+ * `data-theme="light"` on the root.
  *
- * The accent is brass, not gold: saturated gold reads as costume jewellery on
- * screen, while a desaturated brass holds up next to photography.
+ * The canvas is true black. The earlier near-black was a hedge against
+ * photography looking flat, but the photography lives on raised surfaces, not
+ * on the canvas: against real black those surfaces read as lit panels and the
+ * brass gains a stop of intensity it never had.
  */
 
 :root {
-  /* Near-black with a trace of blue; a pure #000 makes photography look flat. */
-  --canvas: #08080a;
-  --surface: #0f1012;
-  --surface-raised: #16171a;
+  --canvas: #000000;
+  --surface: #0a0b0c;
+  --surface-raised: #121314;
   /* Wells: inputs and anything the eye should read as recessed. */
   --surface-sunken: #050506;
 
-  --line-faint: rgb(255 255 255 / 0.05);
-  --line: rgb(255 255 255 / 0.09);
-  --line-strong: rgb(255 255 255 / 0.17);
+  /*
+   * Slightly stronger than they were: a 9% white hairline that reads cleanly
+   * on #0b0b0c disappears on true black.
+   */
+  --line-faint: rgb(255 255 255 / 0.06);
+  --line: rgb(255 255 255 / 0.11);
+  --line-strong: rgb(255 255 255 / 0.2);
 
-  --ink: #eceae7;
-  --muted: #9a978f;
-  --faint: #63605b;
+  --ink: #f2f0ed;
+  --muted: #8e8b85;
+  --faint: #5b5854;
 
   --accent: #c8a96a;
-  --accent-ink: #08080a;
-  --accent-soft: rgb(200 169 106 / 0.12);
-  --accent-line: rgb(200 169 106 / 0.4);
+  --accent-ink: #000000;
+  --accent-soft: rgb(200 169 106 / 0.1);
+  --accent-line: rgb(200 169 106 / 0.42);
 
   --positive: #7fae7f;
   --negative: #d08a80;
 
   /* The lit top edge of a machined panel, and the shadow it casts. */
-  --panel-highlight: rgb(255 255 255 / 0.045);
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.5), 0 16px 48px -16px rgb(0 0 0 / 0.7);
+  --panel-highlight: rgb(255 255 255 / 0.05);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.8), 0 24px 64px -20px rgb(0 0 0 / 0.9);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --canvas: #f4f2ee;
-    --surface: #fbfaf8;
-    --surface-raised: #ffffff;
-    --surface-sunken: #eceae4;
+/*
+ * Light is a deliberate choice, never an inherited one. Kept complete — every
+ * token redefined, nothing borrowed from the dark set — so the two themes stay
+ * genuine peers even though only one is the default.
+ */
+:root[data-theme="light"] {
+  --canvas: #f4f2ee;
+  --surface: #fbfaf8;
+  --surface-raised: #ffffff;
+  --surface-sunken: #eceae4;
 
-    --line-faint: rgb(20 18 14 / 0.06);
-    --line: rgb(20 18 14 / 0.11);
-    --line-strong: rgb(20 18 14 / 0.24);
+  --line-faint: rgb(20 18 14 / 0.06);
+  --line: rgb(20 18 14 / 0.11);
+  --line-strong: rgb(20 18 14 / 0.24);
 
-    --ink: #14130f;
-    --muted: #625f58;
-    --faint: #8e8a83;
+  --ink: #14130f;
+  --muted: #625f58;
+  --faint: #8e8a83;
 
-    /* Darkened so it still passes contrast on ivory. */
-    --accent: #8a6d2f;
-    --accent-ink: #ffffff;
-    --accent-soft: rgb(138 109 47 / 0.09);
-    --accent-line: rgb(138 109 47 / 0.45);
+  /* Darkened so it still passes contrast on ivory. */
+  --accent: #8a6d2f;
+  --accent-ink: #ffffff;
+  --accent-soft: rgb(138 109 47 / 0.09);
+  --accent-line: rgb(138 109 47 / 0.45);
 
-    --positive: #4a7c4a;
-    --negative: #9c4a3d;
+  --positive: #4a7c4a;
+  --negative: #9c4a3d;
 
-    --panel-highlight: rgb(255 255 255 / 0.9);
-    --shadow: 0 1px 2px rgb(20 18 14 / 0.05), 0 16px 40px -20px rgb(20 18 14 / 0.2);
-  }
+  --panel-highlight: rgb(255 255 255 / 0.9);
+  --shadow: 0 1px 2px rgb(20 18 14 / 0.05), 0 16px 40px -20px rgb(20 18 14 / 0.2);
 }
 
 @theme inline {
@@ -92,33 +103,37 @@
   --color-positive: var(--positive);
   --color-negative: var(--negative);
 
-  --font-sans: var(--font-inter-tight);
+  --font-sans: var(--font-archivo);
   --font-mono: var(--font-jetbrains-mono);
-  /* Headings are set in the grotesque too. The serif is an accent, not a voice. */
-  --font-display: var(--font-inter-tight);
-  --font-serif: var(--font-instrument-serif);
+  --font-display: var(--font-archivo);
 
   /*
-   * The type scale. Seven steps and no more — an intermediate size invented
-   * for one component is what makes an interface look assembled rather than
-   * designed. Named by role so the choice is a decision, not a measurement.
+   * The type scale, and the whole idea of this design in seven numbers.
+   *
+   * The distance between the ends is the point: a 10px label with 0.28em of
+   * tracking against a 60px headline with negative tracking. That gap is where
+   * the luxury lives — not in an ornament, a serif or a gradient. Anything
+   * that lands in the middle of the scale weakens it.
+   *
+   * Seven steps and no more. An intermediate size invented for one component
+   * is exactly what makes an interface look assembled rather than designed.
    */
-  --text-micro: 0.6875rem;
+  --text-micro: 0.625rem;
   --text-micro--line-height: 1.1;
   --text-label: 0.75rem;
-  --text-label--line-height: 1.35;
+  --text-label--line-height: 1.4;
   --text-small: 0.8125rem;
   --text-small--line-height: 1.55;
   --text-body: 0.9375rem;
-  --text-body--line-height: 1.6;
-  --text-lead: 1.0625rem;
-  --text-lead--line-height: 1.5;
-  --text-title: 1.25rem;
-  --text-title--line-height: 1.25;
-  --text-section: 1.75rem;
-  --text-section--line-height: 1.15;
-  --text-display: 3rem;
-  --text-display--line-height: 1.02;
+  --text-body--line-height: 1.65;
+  --text-lead: 1.125rem;
+  --text-lead--line-height: 1.35;
+  --text-title: 1.5rem;
+  --text-title--line-height: 1.2;
+  --text-section: 2.25rem;
+  --text-section--line-height: 1.05;
+  --text-display: 3.75rem;
+  --text-display--line-height: 0.95;
 
   /*
    * Precision, not softness. A 2px radius is the difference between a machined
@@ -134,18 +149,36 @@
 body {
   background: var(--canvas);
   color: var(--ink);
-  /* Tighter than default: this face is drawn for it, and density is the point. */
-  letter-spacing: -0.011em;
+  letter-spacing: -0.006em;
 }
 
 /*
- * Micro-label in small caps. The interface's smallest voice, used to head a
- * section or name a value. Never invent another size for this job.
+ * Headline treatment: the large end of the contrast.
+ *
+ * Archivo tightens badly on its own at display size, so the negative tracking
+ * is part of the step rather than something each headline re-invents.
+ */
+.display {
+  font-weight: 600;
+  letter-spacing: -0.045em;
+}
+
+.headline {
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+/*
+ * Micro-label in small caps: the small end of the contrast, and the interface's
+ * smallest voice. Used to head a section or name a value. The tracking is wide
+ * enough that it reads as engraving rather than as shrunken body text — never
+ * invent another size for this job.
  */
 .eyebrow {
   font-size: var(--text-micro);
   line-height: 1.1;
-  letter-spacing: 0.22em;
+  font-weight: 500;
+  letter-spacing: 0.28em;
   text-transform: uppercase;
   color: var(--faint);
 }
@@ -178,13 +211,6 @@ body {
 .rule {
   height: 1px;
   background: linear-gradient(to right, var(--line-strong), transparent);
-}
-
-/* The one place the serif appears: a single phrase, italic, at display size. */
-.flourish {
-  font-family: var(--font-serif);
-  font-style: italic;
-  letter-spacing: -0.02em;
 }
 
 /*

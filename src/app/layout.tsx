@@ -1,16 +1,20 @@
 import type { Metadata, Viewport } from "next";
-import { Inter_Tight, Instrument_Serif, JetBrains_Mono } from "next/font/google";
+import { Archivo, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
 /**
  * The interface face.
  *
- * A tight grotesque rather than a neutral one: the register is a professional
- * tool, and a dense face with short extenders lets a panel carry real
- * information without becoming a wall. It sets everything — headings included.
+ * A grotesque with authority rather than a neutral one. The previous face was
+ * competent and anonymous — the default of half the software on the internet —
+ * and this design asks the type to carry the register on its own now that
+ * there is no serif to lean on.
+ *
+ * The variable axis matters: the same family sets a 10px engraved label and a
+ * 60px headline, and the contrast between those two is the design.
  */
-const interTight = Inter_Tight({
-  variable: "--font-inter-tight",
+const archivo = Archivo({
+  variable: "--font-archivo",
   subsets: ["latin"],
 });
 
@@ -27,18 +31,20 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 /**
- * The luxury accent, and nothing else.
+ * Apply the saved theme before the browser paints.
  *
- * It used to set every heading, which put the product in the register of a
- * printed brochure. Now it appears once or twice a screen — an italic phrase
- * in a headline — where it reads as deliberate rather than as a theme.
+ * Dark is the default and needs no attribute, so this only ever *adds* the
+ * light opt-in. Run from a `useEffect` it would show a black flash to the
+ * handful of people who chose light; run inline during parsing, it is
+ * invisible. See the Next guide on preventing flash before hydration.
  */
-const instrumentSerif = Instrument_Serif({
-  variable: "--font-instrument-serif",
-  weight: "400",
-  style: ["normal", "italic"],
-  subsets: ["latin"],
-});
+const THEME_SCRIPT = `
+try {
+  if (localStorage.getItem("hai-theme") === "light") {
+    document.documentElement.dataset.theme = "light";
+  }
+} catch {}
+`;
 
 /**
  * `metadataBase` resolves the OG image to an absolute URL, which every social
@@ -71,20 +77,23 @@ export const metadata: Metadata = {
   },
 };
 
-/** Matches the canvas token in both themes, so the browser chrome blends in. */
+/** Black, because the product is black. Light is an opt-in, not a peer default. */
 export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f4f2ee" },
-    { media: "(prefers-color-scheme: dark)", color: "#08080a" },
-  ],
+  themeColor: "#000000",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="es"
-      className={`${interTight.variable} ${jetBrainsMono.variable} ${instrumentSerif.variable} h-full antialiased`}
+      // The inline script sets `data-theme` before React arrives, which is a
+      // mismatch by construction and an intentional one.
+      suppressHydrationWarning
+      className={`${archivo.variable} ${jetBrainsMono.variable} h-full antialiased`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="flex min-h-full flex-col bg-canvas font-sans text-body text-ink">
         {children}
       </body>

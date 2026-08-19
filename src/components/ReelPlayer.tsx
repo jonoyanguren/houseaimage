@@ -140,7 +140,7 @@ export function ReelPlayer({ reel }: { reel: Reel }) {
         )}
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between bg-gradient-to-t from-black/70 to-transparent px-5 pb-4 pt-16">
-          <span className="text-lead font-medium leading-none text-white">
+          <span className="headline text-lead leading-none text-white">
             Escena {String(segment.index + 1).padStart(2, "0")}
           </span>
           <span className="numeric text-micro text-white/60">

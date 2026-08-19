@@ -5,12 +5,33 @@ description: Sistema de diseño de houseaimage — tokens de color, escala tipog
 
 # Sistema de diseño
 
-El registro es **instrumento de precisión**: una sala de edición o una mesa de
-color, no un catálogo impreso ni un panel de SaaS. El lujo viene de la
-precisión — líneas de un píxel, una escala tipográfica corta, cifras que no se
-mueven — y el latón es lo único que tiene permiso para ser bonito.
+El registro es **instrumento de precisión, en negro**: una sala de edición o una
+mesa de color, no un catálogo impreso ni un panel de SaaS. El lujo viene de la
+precisión y del **contraste** — líneas de un píxel, cifras que no se mueven, y
+un salto brutal entre los dos extremos de la escala tipográfica. El latón es lo
+único que tiene permiso para ser bonito.
 
 Si un componente nuevo parece un dashboard genérico o un folleto, está mal.
+
+## El oscuro no es una preferencia, es el producto
+
+El fondo es **negro real** (`#000`). La fotografía vive sobre superficies
+elevadas, no sobre el lienzo, y contra negro esas superficies se leen como
+paneles iluminados y el latón gana un paso de intensidad.
+
+**El tema no sigue al sistema operativo.** Antes sí, y eso significaba servir la
+versión marfil a cualquiera que tuviera Windows en claro — la versión más floja
+de este diseño, entregada por defecto y sin que nadie la eligiera. Ahora:
+
+- Oscuro es `:root`, sin atributo y sin media query.
+- Claro es **opt-in**: `:root[data-theme="light"]`, desde el control de la
+  cabecera, y se guarda en `localStorage`.
+- Un script en línea en el layout lo aplica **antes del primer pintado**. Si
+  añades algo que dependa del tema, no lo sincronices con `useEffect`: eso es
+  justo el parpadeo que ese script evita.
+
+Sigue siendo un tema completo — todos los tokens redefinidos, ninguno prestado
+del otro — porque los dos son pares aunque solo uno sea el de por defecto.
 
 ## Nunca uses un color literal
 
@@ -20,7 +41,7 @@ rompe el modo claro, que no es un extra sino un tema de primera.
 
 | Token | Uso |
 | --- | --- |
-| `canvas` | Fondo de página. |
+| `canvas` | Fondo de página. Negro. |
 | `surface` / `surface-raised` | Tarjetas y zonas elevadas. |
 | `surface-sunken` | **Inputs y pozos.** Lo que el ojo debe leer como hundido. |
 | `line-faint` / `line` / `line-strong` | Separadores internos, bordes, hover o activo. |
@@ -35,10 +56,15 @@ nuevo, defínelo **en los dos temas**.
 
 Y úsalo con avaricia: como mucho dos o tres elementos en acento por pantalla.
 
-## La escala tipográfica es cerrada
+## La escala tipográfica es cerrada, y su contraste es el diseño
 
 Siete pasos y ni uno más. Un tamaño intermedio inventado para un componente es
 exactamente lo que hace que una interfaz parezca ensamblada en vez de diseñada.
+
+**La distancia entre los extremos es el diseño**: una etiqueta de 10 px con
+`0.28em` de tracking contra un titular de 60 px con tracking negativo. Ahí vive
+el lujo — no en un adorno, un serif o un degradado. Lo que aterriza en mitad de
+la escala la debilita.
 
 | Clase | Para |
 | --- | --- |
@@ -53,17 +79,23 @@ exactamente lo que hace que una interfaz parezca ensamblada en vez de diseñada.
 **Nunca escribas `text-[13px]`.** Si ninguno de los siete encaja, el problema es
 la jerarquía, no la escala.
 
-Tres familias, con un reparto estricto:
+**Dos familias, y ya está. No hay serif.** Lo hubo, como acento de lujo, y se
+quitó al subir el contraste de la escala: si el salto de tamaño hace el trabajo,
+el adorno sobra y solo añade una fuente que cargar.
 
-- **`font-sans` (Inter Tight)** — todo, titulares incluidos. Es la voz del
-  producto.
+- **`font-sans` (Archivo)** — todo, titulares incluidos. Es la voz del producto,
+  y tiene que sostener el registro ella sola. La anterior era competente y
+  anónima; esta tiene autoridad.
 - **`.numeric` (JetBrains Mono)** — **todas** las cifras: índices, contadores,
   duraciones, créditos, valores de la barra de estado. Ya trae `tabular-nums`;
   no añadas la clase por separado. Los índices van con `padStart(2,"0")`, porque
   `01` se lee como catálogo y `1` como formulario.
-- **`.flourish` (Instrument Serif, cursiva)** — el acento de lujo. **Una vez por
-  pantalla como mucho**, en una frase de un titular. Antes componía todos los
-  encabezados y eso metía el producto en el registro de un folleto.
+
+Dos clases fijan el tratamiento de los titulares, para que cada uno no se
+reinvente su propio tracking:
+
+- **`.display`** — peso 600, `-0.045em`. Para `text-display` y `text-section`.
+- **`.headline`** — peso 600, `-0.03em`. Para `text-title` y `text-lead`.
 
 `.eyebrow` es la etiqueta en versalitas con `tracking` amplio. Úsala para
 encabezar secciones en vez de inventar otro tamaño.
@@ -134,9 +166,12 @@ npm run dev
 
 Playwright **no está instalado**: si lo quieres para capturas, añádelo primero
 (`npm i -D @playwright/test`). Con o sin él, mira los cuatro estados en los dos
-esquemas (`colorScheme: "dark" | "light"`): formulario vacío, renderizando,
-montaje terminado y el panel de Ajustes. El intermedio es el que más se olvida y
-el que más ve el usuario.
+temas: formulario vacío, renderizando, montaje terminado y el panel de Ajustes.
+El intermedio es el que más se olvida y el que más ve el usuario.
+
+El tema claro ya **no** se alcanza con `colorScheme` de Playwright ni cambiando
+el sistema: es un `data-theme="light"` en el `<html>`, así que ponlo a mano o
+pulsa el control de la cabecera.
 
 Y comprueba el formato vertical. Dos de los seis estilos son 9:16, y el
 reproductor toma el marco de `reel.aspectRatio` — si lo vuelves a fijar a

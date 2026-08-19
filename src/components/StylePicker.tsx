@@ -62,7 +62,7 @@ export function StylePicker({
                 <div className="flex min-w-0 flex-1 flex-col gap-2">
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="flex items-baseline gap-2">
-                      <span className="text-lead font-medium leading-none tracking-tight">
+                      <span className="headline text-lead leading-none">
                         {style.label}
                       </span>
                       {recommended && (
