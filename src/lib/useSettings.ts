@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import type { BrandSettings, PublicSettings } from "@/types/settings";
 import type { PluginConfig } from "@/types/plugin";
+import type { VisionModel, VisionSettings } from "@/types/vision";
 
 /**
  * Client state for the settings panel.
@@ -103,6 +104,44 @@ export function useSettings(initial: PublicSettings) {
     [run]
   );
 
+  const saveVision = useCallback(
+    (patch: Partial<VisionSettings>) =>
+      run(async () => {
+        const res = await fetch("/api/settings/vision", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        const data = await res.json();
+        return {
+          ok: res.ok,
+          message: res.ok ? "Guardado." : (data.error ?? "No se pudo guardar"),
+        };
+      }),
+    [run]
+  );
+
+  /**
+   * Ask the local server what models it holds.
+   *
+   * Not wrapped in `run`: this is a lookup for the picker, not a change, and
+   * failing it should not paint an error banner over the panel — the caller
+   * shows the message inline instead.
+   */
+  const listVisionModels = useCallback(
+    async (baseUrl?: string): Promise<{ models?: VisionModel[]; error?: string }> => {
+      try {
+        const query = baseUrl ? `?baseUrl=${encodeURIComponent(baseUrl)}` : "";
+        const res = await fetch(`/api/settings/vision${query}`);
+        const data = await res.json();
+        return res.ok ? { models: data.models } : { error: data.error };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : "Error desconocido" };
+      }
+    },
+    []
+  );
+
   const uploadLogo = useCallback(
     (file: File) =>
       run(async () => {
@@ -126,6 +165,8 @@ export function useSettings(initial: PublicSettings) {
     connectProvider,
     disconnectProvider,
     saveBrand,
+    saveVision,
+    listVisionModels,
     uploadLogo,
   };
 }

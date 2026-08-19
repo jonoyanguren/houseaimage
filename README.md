@@ -138,6 +138,42 @@ El catálogo se sirve al cliente en `GET /api/styles` **sin** el texto que lee e
 modelo. Ese texto va en inglés (los modelos siguen el vocabulario de cámara
 inglés mucho mejor) y no debe viajar al navegador.
 
+## Quién decide qué muestra cada foto
+
+La escena es el eje que fija el movimiento de cámara, así que acertarla importa
+tanto como el estilo. Hay dos formas de decidirla, en
+[`src/lib/vision`](src/lib/vision):
+
+| Driver | Cómo | Qué consigue |
+| --- | --- | --- |
+| `heuristic` *(por defecto)* | Nombre de fichero, y posición si el nombre no dice nada | Acierta con `salon-2.jpg`, se rinde con `IMG_2481.jpg` |
+| `ollama` | Un modelo local **mira** la fotografía | Clasifica todas, y avisa de lo que no conviene animar |
+
+Lo segundo es lo que enciende el catálogo de escenas entero, y además detecta
+lo que hay que descartar **antes** de pagarlo: el plano de planta que toda
+inmobiliaria mete en el anuncio, la foto borrosa, la repetida. Un render
+evitado paga un año de clasificación.
+
+En **Ajustes → Clasificación de fotos** eliges el modelo de una lista de los que
+tienes instalados, con los que no ven imágenes deshabilitados. Que un modelo
+declare visión no garantiza que la use: compruébalo antes con
+
+```bash
+ollama show <modelo>     # capabilities debe incluir "vision"
+```
+
+Tres decisiones que no son negociables:
+
+- **Nunca se descarta una foto sola.** El aviso sale junto a la miniatura y
+  decide la persona. Acertar mucho no es acertar siempre.
+- **Si el modelo duda, gana el nombre del fichero.** Una abstención no es mejor
+  información que un nombre que sí dice algo.
+- **Si el modelo se cae, tarda o desvaría, se cae a la heurística.** Un
+  clasificador nunca puede tumbar una subida.
+
+Con un modelo local, **las fotos no salen de tu máquina** — que en interiores de
+viviendas habitadas es un argumento de venta, no un detalle técnico.
+
 ## Flujo
 
 1. El usuario arrastra las fotos ([`PhotoDropzone`](src/components/PhotoDropzone.tsx)),

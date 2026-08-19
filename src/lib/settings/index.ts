@@ -6,6 +6,7 @@ import type {
   SettingsSource,
 } from "@/types/settings";
 import type { PluginConfig } from "@/types/plugin";
+import type { VisionSettings } from "@/types/vision";
 import { getPlugin, secretFields, toPublicPlugins } from "@/lib/providers/plugins";
 
 /**
@@ -33,9 +34,21 @@ const globalForSettings = globalThis as unknown as {
 
 const DEFAULT_BRAND: BrandSettings = { endCard: false, watermark: false };
 
+/**
+ * Vision is off until someone turns it on: it needs a model running somewhere,
+ * and the heuristic works with nothing at all. The environment can preselect
+ * it for a host that always has one.
+ */
+const DEFAULT_VISION: VisionSettings = {
+  driver: process.env.VISION_DRIVER?.trim() === "ollama" ? "ollama" : "heuristic",
+  baseUrl: process.env.OLLAMA_BASE_URL?.trim() || undefined,
+  model: process.env.OLLAMA_VISION_MODEL?.trim() || undefined,
+};
+
 const settings: RuntimeSettings = (globalForSettings.__houseaimageSettings ??= {
   engine: { config: {}, verified: false },
   brand: { ...DEFAULT_BRAND },
+  vision: { ...DEFAULT_VISION },
 });
 
 /** The plugin the environment pins, if any. */
@@ -181,6 +194,26 @@ export function describeConnection(providerName: string): ProviderConnection {
   };
 }
 
+export function getVision(): VisionSettings {
+  return { ...settings.vision };
+}
+
+/**
+ * Update the classifier.
+ *
+ * Switching away from a driver keeps its address and model rather than wiping
+ * them, so turning vision off and on again does not mean typing the model name
+ * a second time.
+ */
+export function setVision(patch: Partial<VisionSettings>): VisionSettings {
+  settings.vision = {
+    driver: patch.driver ?? settings.vision.driver,
+    baseUrl: (patch.baseUrl ?? settings.vision.baseUrl)?.trim() || undefined,
+    model: (patch.model ?? settings.vision.model)?.trim() || undefined,
+  };
+  return getVision();
+}
+
 export function getBrand(): BrandSettings {
   return { ...settings.brand };
 }
@@ -215,6 +248,7 @@ export async function toPublicSettings(
     connection: describeConnection(providerName),
     plugins: toPublicPlugins(),
     brand: getBrand(),
+    vision: getVision(),
     accessGate: hasAccessGate(),
     canDeliverFile: (await getStitchProvider()) !== null,
   };
@@ -224,4 +258,5 @@ export async function toPublicSettings(
 export function __resetSettings() {
   settings.engine = { config: {}, verified: false };
   settings.brand = { ...DEFAULT_BRAND };
+  settings.vision = { ...DEFAULT_VISION };
 }

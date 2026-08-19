@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { ReactNode } from "react";
 import type { PropertyType, StyleId } from "@/types/video";
 import { PhotoDropzone, type PhotoItem } from "@/components/PhotoDropzone";
@@ -11,6 +11,7 @@ import { ReelPlayer } from "@/components/ReelPlayer";
 import { ShotList } from "@/components/ShotList";
 import { useVideoGeneration } from "@/lib/useVideoGeneration";
 import { DEFAULT_PROPERTY_TYPE, getStyle, stylesForProperty } from "@/lib/prompts";
+import type { PhotoAnalysis } from "@/types/vision";
 
 /**
  * The workspace.
@@ -31,6 +32,34 @@ export function Studio() {
   const [prompt, setPrompt] = useState("");
   const { state, busyClipId, generate, retryFailed, regenerateClip, reset } =
     useVideoGeneration();
+
+  /**
+   * Fold one classifier answer into the photo it belongs to.
+   *
+   * Applied here rather than in the dropzone because the answers arrive over
+   * several seconds, and by then the array the dropzone was handed is stale —
+   * the user may have removed or reordered photos while the model worked. A
+   * functional update against the current state is the only version that
+   * cannot lose an edit.
+   */
+  const applyAnalysis = useCallback((id: string, analysis: PhotoAnalysis) => {
+    setPhotos((current) =>
+      current.map((photo) =>
+        photo.id === id
+          ? {
+              ...photo,
+              // Only a real look upgrades the scene; a heuristic answer from
+              // the server is the same guess the tile already shows.
+              sceneType:
+                analysis.source === "vision" ? analysis.sceneType : photo.sceneType,
+              seen: analysis.source === "vision",
+              discard: analysis.discard,
+              discardReason: analysis.reason,
+            }
+          : photo
+      )
+    );
+  }, []);
 
   /**
    * Changing the property type moves the style to that property's best match.
@@ -87,6 +116,7 @@ export function Studio() {
             <PhotoDropzone
               photos={photos}
               onChange={setPhotos}
+              onAnalyzed={applyAnalysis}
               propertyType={propertyType}
               disabled={isBusy}
             />

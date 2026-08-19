@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { PluginConfig, PublicPlugin } from "@/types/plugin";
+import type { VisionModel } from "@/types/vision";
 import { useSettingsContext } from "@/lib/settingsContext";
 
 /**
@@ -210,6 +211,8 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             </p>
           </Section>
 
+          <VisionSection />
+
           <Section
             title="Marca de la agencia"
             hint="Se estampa en el vídeo que se descarga."
@@ -377,6 +380,168 @@ function PluginOption({
       <span className="text-label leading-relaxed text-muted">
         {plugin.description}
       </span>
+    </label>
+  );
+}
+
+/**
+ * Who decides what each photograph shows.
+ *
+ * The choice is between a filename and a model that looks. The copy says that
+ * plainly, because the difference is not a preference: it decides whether the
+ * scene catalogue fires on every photo or on the two or three whose filename
+ * happened to say something.
+ *
+ * Models are listed rather than typed. Most of a normal library is text-only,
+ * and handing a photograph to a text model produces confident nonsense instead
+ * of an error — so the ones that cannot see are shown, and disabled.
+ */
+function VisionSection() {
+  const { settings, busy, saveVision, listVisionModels } = useSettingsContext();
+
+  const [driver, setDriver] = useState(settings.vision.driver);
+  const [baseUrl, setBaseUrl] = useState(settings.vision.baseUrl ?? "");
+  const [model, setModel] = useState(settings.vision.model ?? "");
+  const [models, setModels] = useState<VisionModel[] | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const [looking, setLooking] = useState(false);
+
+  const lookup = async () => {
+    setLooking(true);
+    setLookupError(null);
+    const result = await listVisionModels(baseUrl.trim() || undefined);
+    setModels(result.models ?? null);
+    setLookupError(result.error ?? null);
+    setLooking(false);
+  };
+
+  const withVision = models?.filter((m) => m.vision) ?? [];
+
+  return (
+    <Section
+      title="Clasificación de fotos"
+      hint="Quién decide qué muestra cada fotografía."
+    >
+      <div className="flex flex-col gap-2">
+        <DriverOption
+          label="Por nombre de fichero"
+          hint="Instantáneo y sin nada que instalar. Acierta con salon-2.jpg y se rinde con IMG_2481.jpg."
+          selected={driver === "heuristic"}
+          onSelect={() => setDriver("heuristic")}
+        />
+        <DriverOption
+          label="Modelo local (Ollama)"
+          hint="Mira la fotografía. Clasifica todas y avisa de planos de planta o fotos borrosas. Las imágenes no salen de tu máquina."
+          selected={driver === "ollama"}
+          onSelect={() => setDriver("ollama")}
+        />
+      </div>
+
+      {driver === "ollama" && (
+        <div className="mt-5 flex flex-col gap-4 border-t border-line-faint pt-5">
+          <Field label="Dirección de Ollama" hint="Vacío para http://127.0.0.1:11434.">
+            <input
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="http://127.0.0.1:11434"
+              spellCheck={false}
+              className="numeric w-full rounded-sm border border-line bg-surface-sunken px-3.5 py-2.5 text-small outline-none transition-colors placeholder:text-faint focus:border-line-strong"
+            />
+          </Field>
+
+          <button
+            type="button"
+            disabled={looking}
+            onClick={lookup}
+            className="w-fit rounded-sm border border-line-strong px-5 py-2 text-micro font-semibold uppercase tracking-[0.2em] transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
+          >
+            {looking ? "Buscando" : "Buscar modelos"}
+          </button>
+
+          {lookupError && (
+            <p className="text-small leading-relaxed text-negative">{lookupError}</p>
+          )}
+
+          {models && withVision.length === 0 && !lookupError && (
+            <p className="text-small leading-relaxed text-muted">
+              Ninguno de tus modelos ve imágenes. Descarga uno con visión, por
+              ejemplo <code className="numeric text-label">ollama pull gemma4</code>.
+            </p>
+          )}
+
+          {models && models.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              {models.map((option) => (
+                <label
+                  key={option.name}
+                  className={`flex items-center justify-between gap-3 rounded-sm border px-3 py-2 ${
+                    !option.vision
+                      ? "cursor-not-allowed border-line opacity-40"
+                      : option.name === model
+                        ? "cursor-pointer border-accent-line bg-accent-soft"
+                        : "cursor-pointer border-line hover:border-line-strong"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="vision-model"
+                    value={option.name}
+                    checked={option.name === model}
+                    disabled={!option.vision}
+                    onChange={() => setModel(option.name)}
+                    className="sr-only"
+                  />
+                  <span className="numeric truncate text-small">{option.name}</span>
+                  <span className="shrink-0 text-micro uppercase tracking-[0.2em] text-faint">
+                    {option.vision ? "visión" : "solo texto"}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        disabled={busy || (driver === "ollama" && !model)}
+        onClick={() => saveVision({ driver, baseUrl, model })}
+        className="mt-5 w-fit rounded-sm bg-accent px-6 py-2.5 text-micro font-semibold uppercase tracking-[0.2em] text-accent-ink transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-25"
+      >
+        Guardar
+      </button>
+    </Section>
+  );
+}
+
+function DriverOption({
+  label,
+  hint,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  hint: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <label
+      className={`flex cursor-pointer flex-col gap-1 rounded-sm border px-4 py-3 transition-colors duration-300 ${
+        selected
+          ? "border-accent-line bg-accent-soft"
+          : "border-line bg-surface hover:border-line-strong"
+      }`}
+    >
+      <input
+        type="radio"
+        name="vision-driver"
+        checked={selected}
+        onChange={onSelect}
+        className="sr-only"
+      />
+      <span className="text-small font-medium">{label}</span>
+      <span className="text-label leading-relaxed text-muted">{hint}</span>
     </label>
   );
 }

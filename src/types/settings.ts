@@ -3,6 +3,7 @@ import type {
   PluginTransport,
   PublicPlugin,
 } from "@/types/plugin";
+import type { VisionSettings } from "@/types/vision";
 
 /**
  * Runtime settings: the things an operator configures from the interface
@@ -75,6 +76,8 @@ export interface BrandSettings {
 }
 
 export interface RuntimeSettings {
+  /** Who looks at the photos and says what they are. */
+  vision: VisionSettings;
   engine: {
     /** Undefined means nothing is connected and the simulated provider serves. */
     pluginId?: string;
@@ -91,6 +94,8 @@ export interface PublicSettings {
   /** Every engine that can be connected, with the fields each one needs. */
   plugins: PublicPlugin[];
   brand: BrandSettings;
+  /** The photo classifier in effect. Nothing here is secret for a local model. */
+  vision: VisionSettings;
   /** True when an access code is configured, so the UI can say so. */
   accessGate: boolean;
   /**

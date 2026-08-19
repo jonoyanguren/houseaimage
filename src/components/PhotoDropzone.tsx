@@ -4,6 +4,9 @@ import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { PropertyType, SceneType } from "@/types/video";
 import { classifyPhoto, scenesForProperty, suggestOrder } from "@/lib/prompts";
+import { mapWithConcurrency } from "@/lib/concurrency";
+import { useSettingsContext } from "@/lib/settingsContext";
+import type { PhotoAnalysis } from "@/types/vision";
 
 export interface PhotoItem {
   id: string;
@@ -12,15 +15,38 @@ export interface PhotoItem {
   previewUrl: string;
   /** What the photo shows; drives the camera movement for its clip. */
   sceneType: SceneType;
+  /** True once a model has looked at it, rather than only its filename. */
+  seen?: boolean;
+  /** Set when the model thinks this photo is not worth rendering. */
+  discard?: boolean;
+  discardReason?: string;
 }
 
 interface PhotoDropzoneProps {
   photos: PhotoItem[];
   onChange: (photos: PhotoItem[]) => void;
+  /**
+   * Applied to one photo, by id, whenever the classifier answers.
+   *
+   * Separate from `onChange` on purpose: the answers arrive one at a time over
+   * several seconds, and by then the array this component was given is stale —
+   * the user may have removed or reordered photos in between. The owner
+   * applies it against the current state instead.
+   */
+  onAnalyzed: (id: string, analysis: PhotoAnalysis) => void;
   /** Conditions which scenes are surfaced and how new photos are classified. */
   propertyType: PropertyType;
   disabled?: boolean;
 }
+
+/**
+ * Photos analysed at once.
+ *
+ * A local model holds the GPU for the length of a request, so asking for three
+ * at a time makes each one slower without finishing sooner. Two keeps the
+ * queue moving while the labels visibly fill in.
+ */
+const ANALYSIS_CONCURRENCY = 2;
 
 /** Longest edge of a preview. Big enough for a grid tile, small enough to hold. */
 const THUMBNAIL_EDGE = 640;
@@ -58,15 +84,61 @@ async function thumbnail(file: File): Promise<string> {
 export function PhotoDropzone({
   photos,
   onChange,
+  onAnalyzed,
   propertyType,
   disabled,
 }: PhotoDropzoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [reading, setReading] = useState(false);
+  const [analyzing, setAnalyzing] = useState<Set<string>>(new Set());
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const sceneOptions = scenesForProperty(propertyType);
+  const { settings } = useSettingsContext();
+  const visionOn = settings.vision.driver !== "heuristic";
+
+  /**
+   * Ask the model what each new photo shows.
+   *
+   * Fire and forget, after the photos are already on screen: the filename
+   * guess is instant and good enough to work with, and the model's answer
+   * replaces it a few seconds later. Nothing here can fail loudly — the route
+   * falls back to the same heuristic we already applied.
+   */
+  const analyze = useCallback(
+    async (items: PhotoItem[], total: number) => {
+      if (!visionOn || items.length === 0) return;
+
+      setAnalyzing(new Set(items.map((item) => item.id)));
+
+      await mapWithConcurrency(items, ANALYSIS_CONCURRENCY, async (item, i) => {
+        try {
+          const res = await fetch("/api/classify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              dataUrl: item.previewUrl,
+              fileName: item.file.name,
+              index: i,
+              total,
+              propertyType,
+            }),
+          });
+          if (res.ok) onAnalyzed(item.id, (await res.json()) as PhotoAnalysis);
+        } catch {
+          /* The filename guess already on screen stands. */
+        } finally {
+          setAnalyzing((current) => {
+            const next = new Set(current);
+            next.delete(item.id);
+            return next;
+          });
+        }
+      });
+    },
+    [onAnalyzed, propertyType, visionOn]
+  );
 
   const addFiles = useCallback(
     async (fileList: FileList | null) => {
@@ -79,9 +151,10 @@ export function PhotoDropzone({
 
       const total = photos.length + incoming.length;
       setReading(true);
+      let newPhotos: PhotoItem[] = [];
 
       try {
-        const newPhotos: PhotoItem[] = await Promise.all(
+        newPhotos = await Promise.all(
           incoming.map(async (file, i) => ({
             id: crypto.randomUUID(),
             file,
@@ -102,8 +175,12 @@ export function PhotoDropzone({
       } finally {
         setReading(false);
       }
+
+      // After the grid has them, never before: the point is that the user sees
+      // the photos immediately and watches the labels sharpen.
+      void analyze(newPhotos, total);
     },
-    [photos, onChange, propertyType]
+    [photos, onChange, propertyType, analyze]
   );
 
   const setSceneType = (id: string, sceneType: SceneType) => {
@@ -277,6 +354,36 @@ export function PhotoDropzone({
                     {String(index + 1).padStart(2, "0")}
                   </span>
 
+                  {analyzing.has(photo.id) && (
+                    <span className="absolute right-3 top-3 flex items-center gap-1.5 rounded-sm bg-black/55 px-2 py-1 backdrop-blur-sm">
+                      <span
+                        aria-hidden="true"
+                        className="live-dot inline-block h-1 w-1 rounded-full bg-accent"
+                      />
+                      <span className="text-micro uppercase tracking-[0.2em] text-white/70">
+                        Mirando
+                      </span>
+                    </span>
+                  )}
+
+                  {photo.discard && (
+                    /*
+                      A warning, never a removal. The model is often right that
+                      a floor plan should not be animated — but it is a guess,
+                      and throwing away someone's photograph on a guess is not
+                      ours to do. The ✕ is right there.
+                    */
+                    <span
+                      title={photo.discardReason}
+                      className="absolute inset-x-0 top-0 flex items-center gap-1.5 bg-accent/90 px-2.5 py-1 text-micro uppercase tracking-[0.16em] text-accent-ink"
+                    >
+                      <span aria-hidden="true">!</span>
+                      <span className="truncate normal-case tracking-normal">
+                        {photo.discardReason ?? "Quizá no convenga animarla"}
+                      </span>
+                    </span>
+                  )}
+
                   {/*
                     Revealed on hover on a pointer device, but always visible
                     where there is no hover to begin with. A phone showed the
@@ -316,12 +423,19 @@ export function PhotoDropzone({
 
                 <select
                   aria-label={`Tipo de estancia de la escena ${index + 1}`}
+                  title={
+                    photo.seen
+                      ? "Clasificada por el modelo mirando la fotografía"
+                      : "Deducida del nombre del fichero o de la posición"
+                  }
                   value={photo.sceneType}
                   disabled={disabled}
                   onChange={(e) =>
                     setSceneType(photo.id, e.target.value as SceneType)
                   }
-                  className="w-full cursor-pointer rounded-sm border border-line bg-surface-sunken px-2.5 py-1.5 text-label text-muted outline-none transition-colors hover:border-line-strong focus:border-line-strong disabled:opacity-40"
+                  className={`w-full cursor-pointer rounded-sm border bg-surface-sunken px-2.5 py-1.5 text-label outline-none transition-colors hover:border-line-strong focus:border-line-strong disabled:opacity-40 ${
+                    photo.seen ? "border-accent-line text-ink" : "border-line text-muted"
+                  }`}
                 >
                   {sceneOptions.map((scene) => (
                     <option key={scene.id} value={scene.id}>
