@@ -31,13 +31,26 @@ import { DEFAULT_CLIP_SECONDS } from "@/lib/config";
  *   generate_video({ model, prompt, medias: [{ role: "start_image", … }] })  →  job id
  *   job_status(jobId)  →  status + video url
  *
- * ⚠️ `media_import_url` takes **HTTPS** URLs. The photos have to be publicly
- * reachable over TLS, which a `localhost` upload directory is not — the same
- * constraint the REST provider has, arriving one step earlier.
+ * The photo is **uploaded**, not handed over as a URL. That is the difference
+ * between this working and not:
+ *
+ * - `media_import_url` asks the vendor to fetch a URL, which means the photos
+ *   have to be publicly reachable over TLS — a tunnel or a deployment, just to
+ *   try the product. And at the time of writing their import is broken: it
+ *   signs the upload to its own S3 for one content type and sends another, so
+ *   every call comes back `SignatureDoesNotMatch`.
+ * - `media_upload` hands us a presigned URL, we PUT the bytes ourselves and
+ *   confirm. It works, and it needs no public address at all: the server reads
+ *   the file from wherever it already lives.
+ *
+ * So upload is the path, and the URL import is only a fallback for a server
+ * that does not offer the upload tools.
  */
 
 /** Higgsfield's tool names. Constants so a rename is one edit, not a hunt. */
 const TOOL_IMPORT = "media_import_url";
+const TOOL_UPLOAD = "media_upload";
+const TOOL_CONFIRM = "media_confirm";
 const TOOL_GENERATE = "generate_video";
 const TOOL_STATUS = "job_status";
 const TOOL_MODELS = "models_explore";
@@ -70,7 +83,12 @@ const DEFAULT_MODEL = "seedance_2_5";
  */
 const globalForCatalog = globalThis as unknown as {
   __houseaimageModelInfo?: Map<string, VideoModelInfo | null>;
+  __houseaimageMcpTools?: Map<string, string[]>;
 };
+
+/** Which tools a server offers, asked once per server. */
+const toolNames: Map<string, string[]> = (globalForCatalog.__houseaimageMcpTools ??=
+  new Map<string, string[]>());
 
 const modelInfo: Map<string, VideoModelInfo | null> = (globalForCatalog.__houseaimageModelInfo ??=
   new Map<string, VideoModelInfo | null>());
@@ -78,6 +96,7 @@ const modelInfo: Map<string, VideoModelInfo | null> = (globalForCatalog.__housea
 /** Test seam, and the escape hatch when a catalogue changes under us. */
 export function resetModelCatalog(): void {
   modelInfo.clear();
+  toolNames.clear();
 }
 
 /** One client per configuration, kept alive across polls. */
@@ -254,6 +273,39 @@ function classifyToolError(tool: string, detail: string): ProviderError {
   return new ProviderError("provider_error", `${tool}: ${detail}`);
 }
 
+/** Extensions the vendor's storage keys on, derived from the MIME type. */
+function extensionFor(contentType: string): string {
+  const subtype = contentType.split("/")[1]?.split(";")[0]?.toLowerCase() ?? "";
+  if (subtype === "png") return "png";
+  if (subtype === "webp") return "webp";
+  return "jpg";
+}
+
+interface UploadTicket {
+  mediaId: string;
+  uploadUrl: string;
+  contentType: string;
+}
+
+function readTicket(payload: unknown): UploadTicket | undefined {
+  const uploads = (payload as { uploads?: unknown[] })?.uploads;
+  const first = Array.isArray(uploads) ? uploads[0] : payload;
+  if (!first || typeof first !== "object") return undefined;
+
+  const record = first as Record<string, unknown>;
+  const mediaId = record.media_id ?? record.mediaId;
+  const uploadUrl = record.upload_url ?? record.uploadUrl;
+
+  if (typeof mediaId !== "string" || typeof uploadUrl !== "string") return undefined;
+
+  return {
+    mediaId,
+    uploadUrl,
+    contentType:
+      typeof record.content_type === "string" ? record.content_type : "image/jpeg",
+  };
+}
+
 /** Turn anything the client throws into a classified provider failure. */
 function asProviderError(err: unknown): ProviderError {
   if (err instanceof ProviderError) return err;
@@ -286,8 +338,19 @@ function toModelInfo(raw: Record<string, unknown>): VideoModelInfo | undefined {
   if (!acceptsStartFrame) return undefined;
 
   const range = raw.duration_range as { min?: number; max?: number } | undefined;
-  const durations = Array.isArray(raw.durations)
-    ? raw.durations.filter((d): d is number => typeof d === "number")
+
+  // Three places, because the catalogue uses all three: a top-level list, a
+  // top-level range, or the options of a `duration` parameter — which is where
+  // Seedance keeps its 4/8/12 and where we were not looking, so every clip was
+  // sent a length the model does not accept.
+  const parameters = Array.isArray(raw.parameters) ? raw.parameters : [];
+  const durationParam = parameters.find(
+    (param) => (param as { name?: unknown }).name === "duration"
+  ) as { options?: unknown; min?: unknown; max?: unknown } | undefined;
+
+  const listed = Array.isArray(raw.durations) ? raw.durations : durationParam?.options;
+  const durations = Array.isArray(listed)
+    ? listed.filter((d): d is number => typeof d === "number")
     : undefined;
 
   return {
@@ -296,8 +359,18 @@ function toModelInfo(raw: Record<string, unknown>): VideoModelInfo | undefined {
     description: typeof raw.description === "string" ? raw.description : undefined,
     vendor: typeof raw.provider_name === "string" ? raw.provider_name : undefined,
     durations: durations?.length ? durations : undefined,
-    minSeconds: typeof range?.min === "number" ? range.min : undefined,
-    maxSeconds: typeof range?.max === "number" ? range.max : undefined,
+    minSeconds:
+      typeof range?.min === "number"
+        ? range.min
+        : typeof durationParam?.min === "number"
+          ? durationParam.min
+          : undefined,
+    maxSeconds:
+      typeof range?.max === "number"
+        ? range.max
+        : typeof durationParam?.max === "number"
+          ? durationParam.max
+          : undefined,
     aspectRatios: Array.isArray(raw.aspect_ratios)
       ? raw.aspect_ratios.filter((a): a is string => typeof a === "string")
       : undefined,
@@ -376,6 +449,87 @@ function createProvider(config: PluginConfig): VideoProvider {
       modelInfo.set(key, null);
       return undefined;
     }
+  }
+
+  /** The server's tool list, asked once. */
+  async function listAvailableTools(): Promise<string[]> {
+    const key = `tools|${config.url ?? config.command ?? ""}`;
+    const cached = toolNames.get(key);
+    if (cached) return cached;
+
+    const tools = await clientFor(config).listTools();
+    toolNames.set(key, tools);
+    return tools;
+  }
+
+  /**
+   * Put the photograph in the vendor's storage and return its id.
+   *
+   * Upload first, URL import only as a fallback: uploading works where the
+   * import currently does not, and — the part that matters most for anyone
+   * trying this out — it needs no public address at all. The bytes are read
+   * from wherever the file already lives, including the server's own disk.
+   */
+  async function putPhoto(imageUrl: string): Promise<string> {
+    const tools = await listAvailableTools();
+
+    if (tools.includes(TOOL_UPLOAD)) {
+      const source = await fetch(imageUrl, { signal: AbortSignal.timeout(60_000) });
+      if (!source.ok) {
+        throw new ProviderError(
+          "invalid_input",
+          `No se pudo leer la fotografía (${source.status}): ${imageUrl}`
+        );
+      }
+
+      const contentType = source.headers.get("content-type") ?? "image/jpeg";
+      const bytes = new Uint8Array(await source.arrayBuffer());
+
+      const ticket = readTicket(
+        await call(TOOL_UPLOAD, {
+          filename: `foto.${extensionFor(contentType)}`,
+          content_type: contentType,
+        })
+      );
+
+      if (!ticket) {
+        throw new ProviderError("provider_error", `${TOOL_UPLOAD} no devolvió una URL`);
+      }
+
+      // The declared type and the sent header have to agree or the presigned
+      // signature does not validate — which is exactly how their own URL
+      // import is broken today.
+      const put = await fetch(ticket.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": ticket.contentType },
+        body: bytes,
+        signal: AbortSignal.timeout(120_000),
+      });
+
+      if (!put.ok) {
+        throw new ProviderError(
+          "provider_error",
+          `La subida de la fotografía falló (${put.status})`
+        );
+      }
+
+      await call(TOOL_CONFIRM, { media_id: ticket.mediaId, type: "image" });
+      return ticket.mediaId;
+    }
+
+    // A server without the upload tools: hand over a URL and hope their side
+    // can reach it.
+    const imported = await call(TOOL_IMPORT, { url: imageUrl, type: "image" });
+    const mediaId = pick(imported, MEDIA_ID_KEYS);
+
+    if (typeof mediaId !== "string") {
+      throw new ProviderError(
+        "provider_error",
+        `${TOOL_IMPORT} no devolvió un media_id utilizable`
+      );
+    }
+
+    return mediaId;
   }
 
   return {
@@ -498,20 +652,9 @@ function createProvider(config: PluginConfig): VideoProvider {
       const { resolved, options } = input;
 
       try {
-        // The generation tool refuses raw URLs, so the photo is imported into
-        // the vendor's storage first and referenced by id.
-        const imported = await call(TOOL_IMPORT, {
-          url: input.imageUrl,
-          type: "image",
-        });
-
-        const mediaId = pick(imported, MEDIA_ID_KEYS);
-        if (typeof mediaId !== "string") {
-          throw new ProviderError(
-            "provider_error",
-            `${TOOL_IMPORT} no devolvió un media_id utilizable`
-          );
-        }
+        // The generation tool refuses raw URLs, so the photograph goes into
+        // the vendor's storage first and is referenced by id.
+        const mediaId = await putPhoto(input.imageUrl);
 
         const wanted =
           options?.durationSeconds ?? resolved.durationSeconds ?? DEFAULT_CLIP_SECONDS;
@@ -621,6 +764,8 @@ export const higgsfieldMcpPlugin: ProviderPlugin = {
       placeholder: DEFAULT_MODEL,
     },
   ],
+  // See the note at the top of this file.
+  needsPublicPhotos: false,
   create: createProvider,
   isConfigured: (config) =>
     Boolean(config.url?.trim()) || Boolean(config.command?.trim()),

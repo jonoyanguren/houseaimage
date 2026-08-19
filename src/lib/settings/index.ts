@@ -255,10 +255,16 @@ export async function toPublicSettings(
   const { getStitchProvider } = await import("@/lib/stitch");
 
   const connection = describeConnection(providerName);
-  // The simulated engine downloads nothing, so a local address is fine there.
-  // A real one fetches every photo over public HTTPS or fails on all of them.
+
+  // Only some backends fetch the photographs themselves. The one that uploads
+  // the bytes needs no public address at all, and warning about it there would
+  // be a false alarm on the setup that actually works.
+  const plugin = getPlugin(connection.pluginId);
   const appUrl = process.env.APP_URL?.trim() ?? "";
-  const photosReachable = !connection.connected || appUrl.startsWith("https://");
+  const photosReachable =
+    !connection.connected ||
+    !plugin?.needsPublicPhotos ||
+    appUrl.startsWith("https://");
 
   return {
     connection,

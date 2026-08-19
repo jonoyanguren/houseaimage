@@ -62,21 +62,22 @@ ollama pull qwen2.5vl:7b
 elígelo → Guardar.** Al guardar se precalienta el modelo, así que la primera
 foto ya no espera a que cargue.
 
-### 2 · Publicar la aplicación, o abrir un túnel
+### 2 · Publicar la aplicación, o abrir un túnel *(solo para algunos motores)*
 
-**Este paso va antes de conectar el motor, no después.** El proveedor de vídeo
-descarga las fotos él mismo por HTTPS público: desde `localhost` fallan *todos*
-los clips.
+Depende de cómo llegue la foto al proveedor, y la barra de estado te lo dice:
 
-```bash
-cloudflared tunnel --url http://localhost:3000
-```
+- **Higgsfield · MCP** — **no hace falta nada.** Sube los bytes de la foto él
+  mismo, así que funciona desde `localhost` sin túnel ni despliegue.
+- **Higgsfield · API** y **línea de comandos** — el proveedor descarga la foto
+  por HTTPS público, así que desde `localhost` fallan *todos* los clips:
 
-Y arranca el servidor con la URL que te dé:
+  ```bash
+  cloudflared tunnel --url http://localhost:3000
+  APP_URL=https://tu-tunel.example npm run dev
+  ```
 
-```bash
-APP_URL=https://tu-tunel.example npm run dev
-```
+  Y en ese caso **este paso va antes de conectar el motor**, porque la
+  dirección de retorno del OAuth se deriva de `APP_URL`.
 
 ### 3 · Conectar el motor de vídeo
 

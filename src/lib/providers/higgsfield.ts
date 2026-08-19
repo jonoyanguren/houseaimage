@@ -218,6 +218,8 @@ export const higgsfieldApiPlugin: ProviderPlugin = {
       placeholder: DEFAULT_BASE_URL,
     },
   ],
+  // See the note at the top of this file.
+  needsPublicPhotos: true,
   create: createProvider,
   isConfigured: (config) => Boolean(config.apiKey?.trim()),
 };

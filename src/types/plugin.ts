@@ -59,6 +59,15 @@ export interface ProviderPlugin {
    * connect, so a half-filled form fails here rather than mid-batch.
    */
   isConfigured(config: PluginConfig): boolean;
+  /**
+   * True when this backend fetches the photographs itself over public HTTPS,
+   * so a local development address makes every clip fail.
+   *
+   * False for a backend that takes the bytes — which is worth a great deal
+   * more than a flag: it is the difference between needing a tunnel or a
+   * deployment to try the product, and needing nothing at all.
+   */
+  needsPublicPhotos: boolean;
 }
 
 /** Raw values as the operator typed them, keyed by field name. */

@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createBatch, toPublicBatch, ValidationError } from "@/lib/engine";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
+import { BATCH_LIMIT_PER_HOUR } from "@/lib/config";
 import type { CreateBatchRequest } from "@/types/video";
 
-/**
- * Batches per client per hour. This is the endpoint that spends money: each
- * one fans out to as many provider jobs as there are photos, so a loop here is
- * a bill. Generous for a working agent, useless for a script.
- */
-const BATCH_LIMIT = 20;
 const BATCH_WINDOW_MS = 60 * 60_000;
 
 /**
@@ -18,10 +13,22 @@ const BATCH_WINDOW_MS = 60 * 60_000;
  * client polls `GET /api/generate/[batchId]` from here on.
  */
 export async function POST(req: NextRequest) {
-  const limit = rateLimit(`batch:${clientKey(req)}`, BATCH_LIMIT, BATCH_WINDOW_MS);
+  const limit = rateLimit(
+    `batch:${clientKey(req)}`,
+    BATCH_LIMIT_PER_HOUR,
+    BATCH_WINDOW_MS
+  );
+
   if (!limit.ok) {
     return NextResponse.json(
-      { error: "Has alcanzado el límite de lotes por hora." },
+      {
+        // Named as ours on purpose. The first version of this message read
+        // like a provider quota, and someone spent a morning looking for a
+        // problem at Higgsfield that was in this file.
+        error:
+          `Límite propio de esta aplicación: ${BATCH_LIMIT_PER_HOUR} lotes por hora. ` +
+          "Súbelo con BATCH_LIMIT_PER_HOUR si estás probando.",
+      },
       { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } }
     );
   }

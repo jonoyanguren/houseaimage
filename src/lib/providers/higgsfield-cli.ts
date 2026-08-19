@@ -241,6 +241,8 @@ export const cliPlugin: ProviderPlugin = {
       placeholder: "--profile agencia",
     },
   ],
+  // See the note at the top of this file.
+  needsPublicPhotos: true,
   create: createProvider,
   isConfigured: (config) => Boolean(config.command?.trim()),
 };

@@ -70,5 +70,15 @@ export const DEFAULT_CLIP_SECONDS = intFromEnv("DEFAULT_CLIP_SECONDS", 5, 2, 15)
 export const STITCH_TIMEOUT_MS =
   intFromEnv("STITCH_TIMEOUT_MINUTES", 10, 1, 60) * 60_000;
 
+/**
+ * Batches one client may create per hour.
+ *
+ * This is the endpoint that spends money, so it is bounded — but the first
+ * number chosen was twenty, and twenty is a morning of debugging. It refused a
+ * legitimate attempt with a message that reads like a provider quota when it
+ * was our own limiter, which is the worst way to be wrong.
+ */
+export const BATCH_LIMIT_PER_HOUR = intFromEnv("BATCH_LIMIT_PER_HOUR", 60, 1, 10_000);
+
 /** Batches older than this are dropped from the in-memory store. */
 export const BATCH_TTL_MS = intFromEnv("BATCH_TTL_MINUTES", 60, 5, 1440) * 60_000;

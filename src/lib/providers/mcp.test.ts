@@ -35,7 +35,19 @@ let failWith: { code: number; message: string } | null = null;
 /** Answer as an SSE stream instead of JSON, which servers may do. */
 let useEventStream = false;
 /** Tools the server admits to having. */
-let toolNames = ["media_import_url", "generate_video", "job_status"];
+let toolNames = [
+  "media_upload",
+  "media_confirm",
+  "media_import_url",
+  "generate_video",
+  "job_status",
+];
+/** An extra catalogue entry a test can add. */
+let catalogExtra: Record<string, unknown> | null = null;
+/** Bytes the fake storage received on its presigned PUT. */
+let uploaded: Buffer | null = null;
+/** Content-Type the PUT arrived with, which has to match what was signed. */
+let uploadedType: string | null = null;
 /** When set, every tool answers with an error result carrying this text. */
 let toolError: string | null = null;
 /** When set, the server rejects anything without this exact bearer. */
@@ -48,6 +60,25 @@ let url = "";
 
 beforeAll(async () => {
   server = createServer((req, res) => {
+    // A photograph to read. One pixel is enough: nothing inspects it.
+    if (req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "image/jpeg" });
+      res.end(Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+      return;
+    }
+
+    // The presigned upload: raw bytes, not JSON-RPC.
+    if (req.method === "PUT") {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk) => chunks.push(chunk as Buffer));
+      req.on("end", () => {
+        uploaded = Buffer.concat(chunks);
+        uploadedType = req.headers["content-type"] ?? null;
+        res.writeHead(200).end();
+      });
+      return;
+    }
+
     let body = "";
     req.on("data", (chunk) => (body += chunk));
 
@@ -124,10 +155,31 @@ beforeAll(async () => {
           return;
         }
 
+        if (name === "media_upload") {
+          reply({
+            structuredContent: {
+              uploads: [
+                {
+                  media_id: "media-42",
+                  upload_url: `${url.replace("/mcp", "")}/subida`,
+                  content_type: args?.content_type ?? "image/jpeg",
+                },
+              ],
+            },
+          });
+          return;
+        }
+
+        if (name === "media_confirm") {
+          reply({ structuredContent: { results: [{ status: "uploaded" }] } });
+          return;
+        }
+
         if (name === "models_explore") {
           reply({
             structuredContent: {
               items: [
+                ...(catalogExtra ? [catalogExtra] : []),
                 {
                   id: "cine",
                   name: "Cinema Studio",
@@ -205,6 +257,9 @@ afterAll(() => {
 
 function reset() {
   calls.length = 0;
+  catalogExtra = null;
+  uploaded = null;
+  uploadedType = null;
   resetModelCatalog();
   toolError = null;
   requiredBearer = null;
@@ -212,7 +267,13 @@ function reset() {
   jobPayload = { status: "queued" };
   failWith = null;
   useEventStream = false;
-  toolNames = ["media_import_url", "generate_video", "job_status"];
+  toolNames = [
+    "media_upload",
+    "media_confirm",
+    "media_import_url",
+    "generate_video",
+    "job_status",
+  ];
   resetMcpClients();
 }
 
@@ -228,6 +289,11 @@ const resolved: ResolvedPrompt = {
 
 function provider() {
   return higgsfieldMcpPlugin.create({ url });
+}
+
+/** A photograph the provider can actually read, served by the fake server. */
+function photoUrl(name = "salon.jpg"): string {
+  return `${url.replace("/mcp", "")}/${name}`;
 }
 
 describe("McpClient", () => {
@@ -254,27 +320,54 @@ describe("McpClient", () => {
 });
 
 describe("higgsfield-mcp plugin", () => {
-  it("imports the photo before submitting, because the tool refuses URLs", async () => {
+  it("uploads the photo rather than asking the vendor to fetch it", async () => {
+    // Uploading is what makes this work without a public address — and what
+    // works at all, since their URL import signs one content type and sends
+    // another.
     reset();
     const job = await provider().createClipJob({
-      imageUrl: "https://example.test/salon.jpg",
+      imageUrl: photoUrl("foto.jpg"),
       resolved,
     });
 
-    // The catalogue call is what learns the model's allowed durations.
     expect(calls.map((c) => c.tool)).toEqual([
-      "media_import_url",
+      "media_upload",
+      "media_confirm",
       "models_explore",
       "generate_video",
     ]);
-    expect(calls[0].args).toMatchObject({ url: "https://example.test/salon.jpg" });
     expect(job).toMatchObject({ providerJobId: "job-7", status: "queued" });
+  });
+
+  it("sends the bytes with the content type it declared", async () => {
+    // A mismatch between the two is precisely how a presigned signature fails.
+    reset();
+    await provider().createClipJob({
+      imageUrl: photoUrl("foto.jpg"),
+      resolved,
+    });
+
+    expect(uploaded).not.toBeNull();
+    expect(uploadedType).toBe(calls[0].args.content_type);
+  });
+
+  it("falls back to a URL import when the server has no upload tools", async () => {
+    reset();
+    toolNames = ["media_import_url", "generate_video", "job_status"];
+
+    await provider().createClipJob({
+      imageUrl: photoUrl(),
+      resolved,
+    });
+
+    expect(calls.map((c) => c.tool)).toContain("media_import_url");
+    expect(uploaded).toBeNull();
   });
 
   it("sends the resolved prompt and the imported media as the start frame", async () => {
     reset();
     await provider().createClipJob({
-      imageUrl: "https://example.test/salon.jpg",
+      imageUrl: photoUrl(),
       resolved,
     });
 
@@ -291,7 +384,7 @@ describe("higgsfield-mcp plugin", () => {
   it("finds the job id in a text answer as readily as a structured one", async () => {
     reset();
     const job = await provider().createClipJob({
-      imageUrl: "https://example.test/a.jpg",
+      imageUrl: photoUrl("a.jpg"),
       resolved,
     });
 
@@ -334,7 +427,7 @@ describe("higgsfield-mcp plugin", () => {
     failWith = { code: 401, message: "no autorizado" };
 
     await expect(
-      provider().createClipJob({ imageUrl: "https://example.test/a.jpg", resolved })
+      provider().createClipJob({ imageUrl: photoUrl("a.jpg"), resolved })
     ).rejects.toMatchObject({ kind: "unauthorized" });
   });
 
@@ -343,7 +436,7 @@ describe("higgsfield-mcp plugin", () => {
     failWith = { code: 429, message: "demasiadas peticiones" };
 
     await expect(
-      provider().createClipJob({ imageUrl: "https://example.test/a.jpg", resolved })
+      provider().createClipJob({ imageUrl: photoUrl("a.jpg"), resolved })
     ).rejects.toMatchObject({ kind: "rate_limited" });
   });
 
@@ -382,7 +475,7 @@ describe("higgsfield-mcp plugin", () => {
     const bare = higgsfieldMcpPlugin.create({});
 
     await expect(
-      bare.createClipJob({ imageUrl: "https://example.test/a.jpg", resolved })
+      bare.createClipJob({ imageUrl: photoUrl("a.jpg"), resolved })
     ).rejects.toBeInstanceOf(ProviderError);
   });
 });
@@ -439,11 +532,11 @@ describe("what a tool refuses", () => {
     toolError = "Error: media_import_url only accepts https:// URLs";
 
     await expect(
-      provider().createClipJob({ imageUrl: "http://localhost:3000/a.jpg", resolved })
+      provider().createClipJob({ imageUrl: photoUrl("a.jpg"), resolved })
     ).rejects.toMatchObject({ kind: "invalid_input" });
 
     const failure = await provider()
-      .createClipJob({ imageUrl: "http://localhost:3000/a.jpg", resolved })
+      .createClipJob({ imageUrl: photoUrl("a.jpg"), resolved })
       .catch((err: Error) => err.message);
 
     expect(failure).toContain("APP_URL");
@@ -454,7 +547,7 @@ describe("what a tool refuses", () => {
     toolError = "Rate limit exceeded, try again later";
 
     await expect(
-      provider().createClipJob({ imageUrl: "https://example.test/a.jpg", resolved })
+      provider().createClipJob({ imageUrl: photoUrl("a.jpg"), resolved })
     ).rejects.toMatchObject({ kind: "rate_limited" });
   });
 
@@ -463,7 +556,7 @@ describe("what a tool refuses", () => {
     toolError = "Something went sideways on our end";
 
     await expect(
-      provider().createClipJob({ imageUrl: "https://example.test/a.jpg", resolved })
+      provider().createClipJob({ imageUrl: photoUrl("a.jpg"), resolved })
     ).rejects.toMatchObject({ kind: "provider_error" });
   });
 });
@@ -510,7 +603,7 @@ describe("choosing the model's constraints", () => {
     reset();
     await higgsfieldMcpPlugin
       .create({ url, model: "rango" })
-      .createClipJob({ imageUrl: "https://example.test/a.jpg", resolved });
+      .createClipJob({ imageUrl: photoUrl("a.jpg"), resolved });
 
     const submit = calls.find((c) => c.tool === "generate_video")!;
     const params = (submit.args as { params: { duration: number } }).params;
@@ -518,6 +611,24 @@ describe("choosing the model's constraints", () => {
     // "rango" allows 3-12, so the style's seven seconds survive intact. Had we
     // taken the first entry ("cine", 5 or 10) it would have become five.
     expect(params.duration).toBe(7);
+  });
+});
+
+describe("where a model hides its durations", () => {
+  it("reads them from a duration parameter's options", async () => {
+    // Seedance keeps its 4/8/12 there rather than in a top-level list, and we
+    // were only looking at the top level — so every clip asked for a length
+    // the model does not accept.
+    reset();
+    catalogExtra = {
+      id: "seedance",
+      name: "Seedance",
+      medias: [{ type: "image", roles: ["start_image"] }],
+      parameters: [{ name: "duration", options: [4, 8, 12], default: 4 }],
+    };
+
+    const models = await provider().listModels!();
+    expect(models.find((m) => m.id === "seedance")?.durations).toEqual([4, 8, 12]);
   });
 });
 
