@@ -155,12 +155,17 @@ inmobiliaria mete en el anuncio, la foto borrosa, la repetida. Un render
 evitado paga un año de clasificación.
 
 En **Ajustes → Clasificación de fotos** eliges el modelo de una lista de los que
-tienes instalados, con los que no ven imágenes deshabilitados. Que un modelo
-declare visión no garantiza que la use: compruébalo antes con
+tienes instalados, con los que no ven imágenes deshabilitados.
 
 ```bash
-ollama show <modelo>     # capabilities debe incluir "vision"
+ollama pull qwen2.5vl:7b     # verificado: detecta planos de planta y fotos inservibles
 ```
+
+⚠️ **Que un modelo declare `vision` no garantiza que la use.** Nos pasó con uno
+que anunciaba la capacidad y respondía «Black» tanto a una imagen roja como a
+una azul: contestaba sin mirar. La prueba que lo caza en diez segundos es
+mandarle un color plano y preguntarle cuál es. Si tarda uno o dos segundos y
+acierta, ve; si contesta al instante y siempre lo mismo, no.
 
 Tres decisiones que no son negociables:
 
