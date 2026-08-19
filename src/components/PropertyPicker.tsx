@@ -31,7 +31,7 @@ export function PropertyPicker({
             <label
               key={property.id}
               title={property.hint}
-              className={`cursor-pointer rounded-full border px-4 py-2 text-[13px] transition-colors duration-300 ${
+              className={`cursor-pointer rounded-sm border px-3.5 py-2 text-small transition-colors duration-300 ${
                 selected
                   ? "border-accent bg-accent-soft text-ink"
                   : "border-line bg-surface text-muted hover:border-line-strong hover:text-ink"
@@ -51,7 +51,7 @@ export function PropertyPicker({
         })}
       </div>
 
-      <p className="mt-3 text-[13px] leading-relaxed text-faint">
+      <p className="mt-3 text-small leading-relaxed text-faint">
         {PROPERTY_LIST.find((p) => p.id === value)?.hint}
       </p>
     </fieldset>

@@ -4,8 +4,11 @@ import type {
   ProviderClipStatus,
   VideoProvider,
 } from "@/types/video";
+import type { ProviderVerification } from "@/types/settings";
+import type { PluginConfig, ProviderPlugin } from "@/types/plugin";
 import { DEFAULT_CLIP_SECONDS } from "@/lib/config";
 import { ProviderError, kindFromStatus } from "@/lib/providers/errors";
+import { normalizeStatus } from "@/lib/providers/status";
 
 /**
  * Higgsfield image-to-video provider: one photo in, one short clip out.
@@ -17,31 +20,43 @@ import { ProviderError, kindFromStatus } from "@/lib/providers/errors";
  * payload shape stays a one-file change.
  */
 
-const API_BASE_URL =
-  process.env.HIGGSFIELD_API_BASE_URL ?? "https://api.higgsfield.ai/v1";
+const DEFAULT_BASE_URL = "https://api.higgsfield.ai/v1";
 
 /** Abort a provider call rather than hanging a request handler indefinitely. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
-function apiKey(): string {
-  const key = process.env.HIGGSFIELD_API_KEY;
-  if (!key) {
+/**
+ * Credentials arrive as plugin configuration rather than being read from the
+ * environment here, so the same code serves a key typed into the settings
+ * panel and one set in `.env`. Which of the two wins is decided once, in
+ * `src/lib/settings`.
+ */
+function credentials(config: PluginConfig): { apiKey: string; baseUrl: string } {
+  const apiKey = config.apiKey?.trim();
+
+  if (!apiKey) {
     // Permanent by construction: no amount of retrying conjures a key.
     throw new ProviderError(
       "unauthorized",
-      "HIGGSFIELD_API_KEY is not set. Add it to .env.local (see .env.example), " +
-        "or unset VIDEO_PROVIDER to fall back to the simulated provider."
+      "No hay ninguna clave de Higgsfield configurada. Conéctala en Ajustes, " +
+        "o define HIGGSFIELD_API_KEY en .env.local (ver .env.example)."
     );
   }
-  return key;
+
+  return {
+    apiKey,
+    baseUrl: config.baseUrl?.trim().replace(/\/+$/, "") || DEFAULT_BASE_URL,
+  };
 }
 
-async function higgsfieldFetch(path: string, init: RequestInit) {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+async function higgsfieldFetch(config: PluginConfig, path: string, init: RequestInit) {
+  const { apiKey, baseUrl } = credentials(config);
+
+  const res = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey()}`,
+      Authorization: `Bearer ${apiKey}`,
       ...init.headers,
     },
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -62,34 +77,61 @@ async function higgsfieldFetch(path: string, init: RequestInit) {
   return res.json();
 }
 
-/**
- * Map a provider's status vocabulary onto ours. Providers add states over
- * time, so anything unrecognised is treated as still-running rather than
- * mistaken for a terminal state — a clip that is wrongly marked failed can
- * never recover, whereas one wrongly marked processing self-corrects.
- */
-function normalizeStatus(raw: unknown): ProviderClipStatus["status"] {
-  const value = String(raw ?? "").toLowerCase();
+function createProvider(config: PluginConfig): VideoProvider {
+  return {
+    name: "higgsfield",
 
-  if (["completed", "succeeded", "success", "done", "finished"].includes(value)) {
-    return "completed";
-  }
-  if (["failed", "error", "canceled", "cancelled", "rejected"].includes(value)) {
-    return "failed";
-  }
-  if (["queued", "pending", "created", "waiting"].includes(value)) {
-    return "queued";
-  }
-  return "processing";
-}
+  /**
+   * Check a key without spending anything.
+   *
+   * The distinction between `ok` and `verified` is the honest part: the
+   * endpoint paths in this file are a placeholder, so a 404 means "we could
+   * not check", not "the key is bad". Only an explicit 401/403 is treated as a
+   * rejected key — refusing to save a working key because our probe URL is
+   * wrong would be worse than saving an unverified one.
+   */
+  async verifyCredentials(): Promise<ProviderVerification> {
+    const { apiKey, baseUrl } = credentials(config);
 
-export const higgsfieldProvider: VideoProvider = {
-  name: "higgsfield",
+    try {
+      const res = await fetch(`${baseUrl}/me`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+
+      if (res.status === 401 || res.status === 403) {
+        return {
+          ok: false,
+          verified: true,
+          message: "Higgsfield rechazó la clave (no autorizado).",
+        };
+      }
+
+      if (res.ok) {
+        return { ok: true, verified: true, message: "Conectado con Higgsfield." };
+      }
+
+      return {
+        ok: true,
+        verified: false,
+        message:
+          `La clave se ha guardado, pero no se pudo comprobar: Higgsfield respondió ${res.status} ` +
+          "al endpoint de verificación. Confirma la URL base en la referencia de tu cuenta.",
+      };
+    } catch {
+      return {
+        ok: true,
+        verified: false,
+        message:
+          "La clave se ha guardado, pero no se pudo contactar con Higgsfield para comprobarla.",
+      };
+    }
+  },
 
   async createClipJob(input: CreateClipInput): Promise<ProviderClipJob> {
     const { resolved, options } = input;
 
-    const data = await higgsfieldFetch("/videos/generate", {
+    const data = await higgsfieldFetch(config, "/videos/generate", {
       method: "POST",
       body: JSON.stringify({
         // One starting frame per job — this is the whole point of the fan-out.
@@ -117,7 +159,7 @@ export const higgsfieldProvider: VideoProvider = {
   },
 
   async getClipJobStatus(providerJobId: string): Promise<ProviderClipStatus> {
-    const data = await higgsfieldFetch(`/videos/generate/${providerJobId}`, {
+    const data = await higgsfieldFetch(config, `/videos/generate/${providerJobId}`, {
       method: "GET",
     });
 
@@ -151,4 +193,31 @@ export const higgsfieldProvider: VideoProvider = {
           : undefined,
     };
   },
+};
+}
+
+export const higgsfieldApiPlugin: ProviderPlugin = {
+  id: "higgsfield-api",
+  label: "Higgsfield · API",
+  description: "La API REST de Higgsfield con una clave de tu cuenta. La vía directa.",
+  transport: "api",
+  fields: [
+    {
+      name: "apiKey",
+      label: "Clave de API",
+      kind: "secret",
+      required: true,
+      placeholder: "hf_···",
+    },
+    {
+      name: "baseUrl",
+      label: "URL base",
+      hint: "Déjala vacía para usar la de por defecto.",
+      kind: "url",
+      fallback: DEFAULT_BASE_URL,
+      placeholder: DEFAULT_BASE_URL,
+    },
+  ],
+  create: createProvider,
+  isConfigured: (config) => Boolean(config.apiKey?.trim()),
 };

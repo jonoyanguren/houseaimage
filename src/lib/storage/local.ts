@@ -28,6 +28,9 @@ function extensionFor(mimeType: string): string {
   if (subtype === "webp") return "webp";
   if (subtype === "avif") return "avif";
   if (subtype === "heic" || subtype === "heif") return "heic";
+  // The agency logo comes through here too, and an SVG saved as .jpg is a
+  // broken image on the closing card.
+  if (subtype === "svg+xml") return "svg";
   // The assembled reel comes back through the same interface as the photos.
   if (subtype === "mp4") return "mp4";
   if (subtype === "webm") return "webm";

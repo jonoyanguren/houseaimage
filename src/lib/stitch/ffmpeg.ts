@@ -4,24 +4,28 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { Reel } from "@/types/video";
-import type { StitchProvider, StitchResult } from "@/types/stitch";
+import type { StitchOptions, StitchProvider, StitchResult } from "@/types/stitch";
 import { getStorage } from "@/lib/storage";
 import { STITCH_TIMEOUT_MS } from "@/lib/config";
+import { hasEndCardContent, renderEndCard } from "@/lib/stitch/endcard";
 
 const run = promisify(execFile);
 
 /**
  * Assemble the clips into one MP4 with ffmpeg.
  *
- * Two decisions worth knowing:
+ * Three decisions worth knowing:
  *
  * - **Clips are re-encoded, not stream-copied.** A straight concat is far
  *   faster but only works when every input shares a codec, resolution and
  *   frame rate. Ours come back from a video model one job at a time and drift
  *   apart, and a concat that fails on the customer's tenth listing is worse
  *   than one that always takes a few seconds.
- * - **Every clip is letterboxed to the style's aspect ratio** rather than
+ * - **Every clip is letterboxed to the reel's aspect ratio** rather than
  *   cropped, because cropping a property photo cuts off the room.
+ * - **Branding never fails the render.** A logo that will not download or a
+ *   closing card that will not draw costs the branding, not the video: the
+ *   customer has already paid to render these clips.
  */
 
 /** Where the binary lives. Not always on PATH — hence the override. */
@@ -105,12 +109,28 @@ function dimensionsFor(aspectRatio: string): { width: number; height: number } {
   }
 }
 
+/** How long the closing card holds. Long enough to read a phone number. */
+const END_CARD_SECONDS = 2.5;
+
 async function download(url: string, destination: string): Promise<void> {
   const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
   if (!res.ok) {
     throw new Error(`No se pudo descargar el clip (${res.status}): ${url}`);
   }
   await writeFile(destination, Buffer.from(await res.arrayBuffer()));
+}
+
+/**
+ * Make a stored URL fetchable from the server itself.
+ *
+ * Photos and logos come back from `StorageProvider` as site-relative paths on
+ * the local driver, and ffmpeg has no site to be relative to. `APP_URL` is what
+ * an object-store driver makes unnecessary — until then, set it in production.
+ */
+function absolute(url: string): string {
+  if (!url.startsWith("/")) return url;
+  const origin = process.env.APP_URL?.trim() || "http://localhost:3000";
+  return `${origin.replace(/\/+$/, "")}${url}`;
 }
 
 export const ffmpegStitchProvider: StitchProvider = {
@@ -123,7 +143,7 @@ export const ffmpegStitchProvider: StitchProvider = {
     return (await encoding()) !== null;
   },
 
-  async stitch(reel: Reel, aspectRatio: string): Promise<StitchResult> {
+  async stitch(reel: Reel, options: StitchOptions = {}): Promise<StitchResult> {
     const sources = reel.segments.filter((s) => s.videoUrl);
     if (sources.length === 0) {
       throw new Error("No hay clips con vídeo que montar");
@@ -136,31 +156,60 @@ export const ffmpegStitchProvider: StitchProvider = {
       );
     }
 
-    const { width, height } = dimensionsFor(aspectRatio);
+    const brand = options.brand;
+    const { width, height } = dimensionsFor(reel.aspectRatio);
     const workDir = await mkdtemp(path.join(tmpdir(), "houseaimage-reel-"));
 
     try {
-      const inputs: string[] = [];
+      const inputArgs: string[] = [];
+
       for (const [i, segment] of sources.entries()) {
         const file = path.join(workDir, `clip-${i}.mp4`);
         await download(segment.videoUrl!, file);
-        inputs.push(file);
+        inputArgs.push("-i", file);
       }
+
+      const clipCount = sources.length;
+
+      // Branding is attempted, never required. A block that fails returns
+      // `undefined` and the graph below simply omits that stage.
+      const endCardIndex = await addEndCard(brand, workDir, width, height, inputArgs);
+      const logoIndex = await addLogo(brand, workDir, inputArgs);
 
       // Normalise each input, then concatenate. `force_original_aspect_ratio`
       // plus `pad` letterboxes instead of cropping; `setsar=1` stops a clip
       // with odd pixel aspect from skewing the rest.
-      const filters = inputs
-        .map(
-          (_, i) =>
-            `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-            `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v${i}]`
-        )
-        .join(";");
+      const normalise = (index: number, label: string) =>
+        `[${index}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[${label}]`;
 
-      const concat =
-        inputs.map((_, i) => `[v${i}]`).join("") +
-        `concat=n=${inputs.length}:v=1:a=0[out]`;
+      const steps: string[] = [];
+      for (let i = 0; i < clipCount; i++) steps.push(normalise(i, `v${i}`));
+
+      const clipLabels = Array.from({ length: clipCount }, (_, i) => `[v${i}]`).join("");
+      steps.push(`${clipLabels}concat=n=${clipCount}:v=1:a=0[body]`);
+
+      let last = "body";
+
+      if (logoIndex !== undefined) {
+        // A twelfth of the frame, inset by a fortieth: present, not shouting.
+        const logoWidth = Math.round(width / 12);
+        const inset = Math.round(width / 40);
+        steps.push(`[${logoIndex}:v]scale=${logoWidth}:-1,format=rgba,` +
+          `colorchannelmixer=aa=0.75[wm]`);
+        steps.push(
+          `[${last}][wm]overlay=W-w-${inset}:H-h-${inset}:format=auto[branded]`
+        );
+        last = "branded";
+      }
+
+      if (endCardIndex !== undefined) {
+        // The card is appended after the watermark stage, so the mark does not
+        // sit on top of the logo it is a copy of.
+        steps.push(normalise(endCardIndex, "card"));
+        steps.push(`[${last}][card]concat=n=2:v=1:a=0[out]`);
+        last = "out";
+      }
 
       const output = path.join(workDir, `reel.${format.extension}`);
 
@@ -168,11 +217,11 @@ export const ffmpegStitchProvider: StitchProvider = {
         ffmpegPath(),
         [
           "-y",
-          ...inputs.flatMap((file) => ["-i", file]),
+          ...inputArgs,
           "-filter_complex",
-          `${filters};${concat}`,
+          steps.join(";"),
           "-map",
-          "[out]",
+          `[${last}]`,
           ...format.args,
           // Puts the index at the front so the file starts playing before it
           // has fully downloaded — it will be watched over mobile data. MP4
@@ -196,3 +245,56 @@ export const ffmpegStitchProvider: StitchProvider = {
     }
   },
 };
+
+/**
+ * Draw the closing card and add it as a still input.
+ *
+ * `-loop 1 -t` turns a PNG into a clip of that length. Returns the input index
+ * it took, or `undefined` when there is no card to draw or drawing failed.
+ */
+async function addEndCard(
+  brand: StitchOptions["brand"],
+  workDir: string,
+  width: number,
+  height: number,
+  inputArgs: string[]
+): Promise<number | undefined> {
+  if (!brand || !hasEndCardContent(brand)) return undefined;
+
+  try {
+    const png = await renderEndCard(
+      { ...brand, logoUrl: brand.logoUrl ? absolute(brand.logoUrl) : undefined },
+      width,
+      height
+    );
+    const file = path.join(workDir, "endcard.png");
+    await writeFile(file, png);
+
+    const index = inputArgs.filter((arg) => arg === "-i").length;
+    inputArgs.push("-loop", "1", "-t", String(END_CARD_SECONDS), "-i", file);
+    return index;
+  } catch {
+    // No card is a worse video, not a failed one.
+    return undefined;
+  }
+}
+
+/** Fetch the logo for the watermark. Returns the input index it took. */
+async function addLogo(
+  brand: StitchOptions["brand"],
+  workDir: string,
+  inputArgs: string[]
+): Promise<number | undefined> {
+  if (!brand?.watermark || !brand.logoUrl) return undefined;
+
+  try {
+    const file = path.join(workDir, "logo");
+    await download(absolute(brand.logoUrl), file);
+
+    const index = inputArgs.filter((arg) => arg === "-i").length;
+    inputArgs.push("-i", file);
+    return index;
+  } catch {
+    return undefined;
+  }
+}

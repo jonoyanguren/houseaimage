@@ -27,11 +27,11 @@ export function ClipProgressList({ clips }: { clips: PublicClip[] }) {
   const pct = Math.round((done / clips.length) * 100);
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2.5">
         <div className="flex items-baseline justify-between">
           <span className="eyebrow">Renderizando</span>
-          <span className="font-mono text-[11px] tracking-widest text-muted tabular-nums">
+          <span className="numeric text-micro text-muted">
             {String(done).padStart(2, "0")} / {String(clips.length).padStart(2, "0")}
           </span>
         </div>
@@ -43,13 +43,13 @@ export function ClipProgressList({ clips }: { clips: PublicClip[] }) {
         </div>
       </div>
 
-      <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <ul className="grid grid-cols-3 gap-2">
         {[...clips]
           .sort((a, b) => a.index - b.index)
           .map((clip) => (
             <li
               key={clip.clipId}
-              className="relative aspect-[4/3] overflow-hidden rounded-sm border border-line bg-surface"
+              className="panel relative aspect-[4/3] overflow-hidden"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -69,11 +69,11 @@ export function ClipProgressList({ clips }: { clips: PublicClip[] }) {
               )}
 
               <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2.5 pt-8">
-                <span className="font-mono text-[11px] tracking-widest text-white/70">
+                <span className="numeric text-micro text-white/70">
                   {String(clip.index + 1).padStart(2, "0")}
                 </span>
                 <span
-                  className={`text-[10px] uppercase tracking-[0.16em] ${
+                  className={`text-micro uppercase tracking-[0.2em] ${
                     clip.status === "completed"
                       ? "text-positive"
                       : clip.status === "failed"
@@ -93,7 +93,7 @@ export function ClipProgressList({ clips }: { clips: PublicClip[] }) {
               {clip.status === "failed" && clip.error && (
                 <p
                   title={clip.error}
-                  className="absolute inset-x-0 top-0 truncate bg-black/70 px-3 py-1.5 text-[11px] text-negative"
+                  className="absolute inset-x-0 top-0 truncate bg-black/70 px-3 py-1.5 text-micro text-negative"
                 >
                   {clip.error}
                 </p>
@@ -111,7 +111,7 @@ export function ClipSummary({ clips }: { clips: PublicClip[] }) {
   if (clips.length === 0) return null;
 
   return (
-    <p className="text-[13px] text-muted">
+    <p className="text-small text-muted">
       {clips.length - failed.length} de {clips.length} escenas renderizadas
       {failed.length > 0 && (
         <span className={STATUS_TONE.failed}>

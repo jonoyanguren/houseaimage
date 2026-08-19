@@ -19,6 +19,7 @@
 export {
   createBatch,
   refreshBatch,
+  regenerateClip,
   retryFailedClips,
   ValidationError,
 } from "@/lib/engine/pipeline";

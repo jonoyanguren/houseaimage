@@ -1,8 +1,9 @@
 import type { Batch } from "@/types/video";
+import type { BrandSettings } from "@/types/settings";
 import { getStitchProvider } from "@/lib/stitch";
+import { getBrand } from "@/lib/settings";
 import { getBatch, updateBatch } from "@/lib/jobStore";
 import { withLock } from "@/lib/lock";
-import { getStyle } from "@/lib/prompts";
 
 /**
  * Assembling the downloadable file, once a batch has finished rendering.
@@ -67,14 +68,16 @@ export async function maybeStartStitching(batch: Batch): Promise<StitchStart> {
   if (!provider) return { batch };
 
   const reel = batch.reel!;
-  const aspectRatio =
-    batch.options?.aspectRatio ?? getStyle(batch.options?.styleId).aspectRatio;
+  // Read now rather than inside the background job: the operator may open the
+  // settings panel while the encode runs, and a video should be stamped with
+  // the brand that was in effect when it started.
+  const brand = getBrand();
 
   inFlight.add(batch.batchId);
 
   return {
     batch: { ...batch, reel: { ...reel, stitching: true } },
-    start: () => void runStitch(batch.batchId, reel, aspectRatio),
+    start: () => void runStitch(batch.batchId, reel, brand),
   };
 }
 
@@ -88,13 +91,13 @@ export async function maybeStartStitching(batch: Batch): Promise<StitchStart> {
 async function runStitch(
   batchId: string,
   reel: NonNullable<Batch["reel"]>,
-  aspectRatio: string
+  brand: BrandSettings
 ): Promise<void> {
   try {
     const provider = await getStitchProvider();
     if (!provider) return;
 
-    const result = await provider.stitch(reel, aspectRatio);
+    const result = await provider.stitch(reel, { brand });
 
     await withLock(batchId, async () => {
       const current = await getBatch(batchId);

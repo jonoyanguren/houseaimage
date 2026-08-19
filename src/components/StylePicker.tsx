@@ -2,6 +2,7 @@
 
 import type { PropertyType, StyleId } from "@/types/video";
 import { stylesForProperty } from "@/lib/prompts";
+import { StylePreview } from "@/components/StylePreview";
 
 /**
  * Style chooser.
@@ -36,9 +37,9 @@ export function StylePicker({
           return (
             <label
               key={style.id}
-              className={`group relative flex cursor-pointer flex-col gap-2 rounded-sm border p-5 transition-colors duration-300 ${
+              className={`group relative flex cursor-pointer flex-col gap-2 rounded-sm border p-4 transition-colors duration-300 ${
                 selected
-                  ? "border-accent bg-accent-soft"
+                  ? "border-accent-line bg-accent-soft"
                   : "border-line bg-surface hover:border-line-strong"
               }`}
             >
@@ -51,33 +52,43 @@ export function StylePicker({
                 className="sr-only"
               />
 
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="flex items-baseline gap-2">
-                  <span className="font-display text-lg leading-none tracking-tight">
-                    {style.label}
-                  </span>
-                  {recommended && (
-                    <span className="text-[10px] uppercase tracking-[0.16em] text-accent">
-                      Recomendado
+              <div className="flex gap-4">
+                <StylePreview
+                  styleId={style.id}
+                  aspectRatio={style.aspectRatio}
+                  active={selected}
+                />
+
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="flex items-baseline gap-2">
+                      <span className="text-lead font-medium leading-none tracking-tight">
+                        {style.label}
+                      </span>
+                      {recommended && (
+                        <span className="text-micro uppercase tracking-[0.2em] text-accent">
+                          Recomendado
+                        </span>
+                      )}
                     </span>
-                  )}
-                </span>
-                <span
-                  className={`shrink-0 font-mono text-[10px] tracking-widest ${
-                    selected ? "text-accent" : "text-faint"
-                  }`}
-                >
-                  {style.aspectRatio} · {style.durationSeconds}s
-                </span>
+                    <span
+                      className={`shrink-0 numeric text-micro ${
+                        selected ? "text-accent" : "text-faint"
+                      }`}
+                    >
+                      {style.aspectRatio} · {style.durationSeconds}s
+                    </span>
+                  </div>
+
+                  <p className="text-small leading-relaxed text-muted">
+                    {style.tagline}
+                  </p>
+
+                  <p className="text-label leading-relaxed text-faint">
+                    {style.bestFor.join(" · ")}
+                  </p>
+                </div>
               </div>
-
-              <p className="text-[13px] leading-relaxed text-muted">
-                {style.tagline}
-              </p>
-
-              <p className="text-[12px] leading-relaxed text-faint">
-                {style.bestFor.join(" · ")}
-              </p>
             </label>
           );
         })}

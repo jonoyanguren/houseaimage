@@ -73,6 +73,8 @@ reloj para probarla, la has puesto en el sitio equivocado.
 | Quiero… | Archivo |
 | --- | --- |
 | Cambiar cómo se crean o sondean los jobs | `src/lib/engine/pipeline.ts` |
+| Regenerar un plano suelto | `regenerateClip` en `src/lib/engine/pipeline.ts` |
+| Cambiar la marca estampada en el vídeo | `src/lib/stitch/` (usa `src/lib/settings`) |
 | Cambiar cuándo se reintenta o se agota un clip | `src/lib/engine/policy.ts` |
 | Cambiar cómo se monta el vídeo | `src/lib/compose.ts` |
 | Cambiar el estado del lote | `src/lib/engine/state.ts` |
@@ -144,6 +146,16 @@ Si añades otra operación que modifique un lote, mete la lectura dentro del
 mismo cerrojo. Y recuerda que `src/lib/lock.ts` es de un solo proceso: quien
 implemente un `BatchStore` distribuido tiene que implementar también un cerrojo
 distribuido, o el doble cobro vuelve.
+
+## Regenerar un plano no es reintentarlo
+
+`regenerateClip(batchId, clipId)` re-renderiza **un** clip, esté como esté —
+incluido uno que salió bien. No es recuperación de un error: es el usuario
+diciendo que ese plano no le vale, y cuesta un trabajo del proveedor.
+
+Va por el mismo cerrojo que el sondeo, conserva `clipId` e `index`, y reinicia
+`attempts` a 1. No hay que invalidar el MP4 montado a mano: `withDerivedState`
+compara el metraje y tira el fichero obsoleto solo.
 
 ## Reintentos: hay dos, y son distintos
 

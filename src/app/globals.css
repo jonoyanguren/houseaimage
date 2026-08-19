@@ -1,52 +1,76 @@
 @import "tailwindcss";
 
 /*
- * Design tokens.
+ * Design tokens — "instrumento de precisión".
  *
- * Dark is the primary look — luxury property marketing is presented in
- * screening-room conditions, where a bright chrome competes with the imagery.
- * Light mode is a full peer, not an afterthought: every token below is
- * redefined for it, so nothing borrows a colour from the other theme.
+ * The register is a professional tool, not a brochure: a colour grading suite
+ * or an editing desk rather than a printed catalogue. Luxury here comes from
+ * precision — hairlines, a strict type scale, numerals that never shift — and
+ * the brass is the one thing allowed to be beautiful.
  *
- * The accent is brass rather than gold: saturated gold reads as costume
- * jewellery on screen, while a desaturated brass holds up next to photography.
+ * Dark is the primary look, because footage is graded in a dark room and a
+ * bright chrome competes with the imagery. Light is a full peer: every token
+ * below is redefined for it, so nothing borrows a colour from the other theme.
+ *
+ * The accent is brass, not gold: saturated gold reads as costume jewellery on
+ * screen, while a desaturated brass holds up next to photography.
  */
 
 :root {
-  /* Warm near-black; a pure #000 makes photography look flat. */
-  --canvas: #0b0b0c;
-  --surface: #131315;
-  --surface-raised: #1a1a1d;
+  /* Near-black with a trace of blue; a pure #000 makes photography look flat. */
+  --canvas: #08080a;
+  --surface: #0f1012;
+  --surface-raised: #16171a;
+  /* Wells: inputs and anything the eye should read as recessed. */
+  --surface-sunken: #050506;
+
+  --line-faint: rgb(255 255 255 / 0.05);
   --line: rgb(255 255 255 / 0.09);
-  --line-strong: rgb(255 255 255 / 0.18);
-  --ink: #f4f1ec;
-  --muted: #a09c94;
-  --faint: #6d6963;
+  --line-strong: rgb(255 255 255 / 0.17);
+
+  --ink: #eceae7;
+  --muted: #9a978f;
+  --faint: #63605b;
+
   --accent: #c8a96a;
-  --accent-ink: #0b0b0c;
-  --accent-soft: rgb(200 169 106 / 0.14);
+  --accent-ink: #08080a;
+  --accent-soft: rgb(200 169 106 / 0.12);
+  --accent-line: rgb(200 169 106 / 0.4);
+
   --positive: #7fae7f;
   --negative: #d08a80;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 40px -12px rgb(0 0 0 / 0.6);
+
+  /* The lit top edge of a machined panel, and the shadow it casts. */
+  --panel-highlight: rgb(255 255 255 / 0.045);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.5), 0 16px 48px -16px rgb(0 0 0 / 0.7);
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --canvas: #f7f5f1;
-    --surface: #ffffff;
+    --canvas: #f4f2ee;
+    --surface: #fbfaf8;
     --surface-raised: #ffffff;
-    --line: rgb(20 18 14 / 0.1);
-    --line-strong: rgb(20 18 14 / 0.22);
-    --ink: #16150f;
-    --muted: #6b675e;
-    --faint: #96918a;
+    --surface-sunken: #eceae4;
+
+    --line-faint: rgb(20 18 14 / 0.06);
+    --line: rgb(20 18 14 / 0.11);
+    --line-strong: rgb(20 18 14 / 0.24);
+
+    --ink: #14130f;
+    --muted: #625f58;
+    --faint: #8e8a83;
+
     /* Darkened so it still passes contrast on ivory. */
     --accent: #8a6d2f;
     --accent-ink: #ffffff;
-    --accent-soft: rgb(138 109 47 / 0.1);
+    --accent-soft: rgb(138 109 47 / 0.09);
+    --accent-line: rgb(138 109 47 / 0.45);
+
     --positive: #4a7c4a;
     --negative: #9c4a3d;
-    --shadow: 0 1px 2px rgb(20 18 14 / 0.04), 0 12px 32px -16px rgb(20 18 14 / 0.18);
+
+    --panel-highlight: rgb(255 255 255 / 0.9);
+    --shadow: 0 1px 2px rgb(20 18 14 / 0.05), 0 16px 40px -20px rgb(20 18 14 / 0.2);
   }
 }
 
@@ -54,6 +78,8 @@
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);
   --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-line-faint: var(--line-faint);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-ink: var(--ink);
@@ -62,12 +88,45 @@
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-line: var(--accent-line);
   --color-positive: var(--positive);
   --color-negative: var(--negative);
 
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-display: var(--font-instrument-serif);
+  --font-sans: var(--font-inter-tight);
+  --font-mono: var(--font-jetbrains-mono);
+  /* Headings are set in the grotesque too. The serif is an accent, not a voice. */
+  --font-display: var(--font-inter-tight);
+  --font-serif: var(--font-instrument-serif);
+
+  /*
+   * The type scale. Seven steps and no more — an intermediate size invented
+   * for one component is what makes an interface look assembled rather than
+   * designed. Named by role so the choice is a decision, not a measurement.
+   */
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 1.1;
+  --text-label: 0.75rem;
+  --text-label--line-height: 1.35;
+  --text-small: 0.8125rem;
+  --text-small--line-height: 1.55;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.6;
+  --text-lead: 1.0625rem;
+  --text-lead--line-height: 1.5;
+  --text-title: 1.25rem;
+  --text-title--line-height: 1.25;
+  --text-section: 1.75rem;
+  --text-section--line-height: 1.15;
+  --text-display: 3rem;
+  --text-display--line-height: 1.02;
+
+  /*
+   * Precision, not softness. A 2px radius is the difference between a machined
+   * panel and a consumer app; nothing here is ever pill-shaped except a status
+   * chip, where the pill *is* the meaning.
+   */
+  --radius-sm: 2px;
+  --radius-md: 3px;
 
   --shadow-elevated: var(--shadow);
 }
@@ -75,20 +134,57 @@
 body {
   background: var(--canvas);
   color: var(--ink);
+  /* Tighter than default: this face is drawn for it, and density is the point. */
+  letter-spacing: -0.011em;
 }
 
-/* Editorial small-caps label used for section headings and status chips. */
+/*
+ * Micro-label in small caps. The interface's smallest voice, used to head a
+ * section or name a value. Never invent another size for this job.
+ */
 .eyebrow {
-  font-size: 0.6875rem;
-  letter-spacing: 0.18em;
+  font-size: var(--text-micro);
+  line-height: 1.1;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--faint);
+}
+
+/*
+ * Every number in the interface: counters, durations, indices, credits.
+ *
+ * Tabular figures are not a nicety here — a progress readout that reflows on
+ * each update reads as unstable, and this app updates numbers every two
+ * seconds for minutes at a time.
+ */
+.numeric {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+/*
+ * A surface with a lit top edge, the way an anodised panel catches light.
+ * One hairline and one highlight — no drop shadows on ordinary containers.
+ */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 1px 0 var(--panel-highlight);
 }
 
 /* Hairline rule that fades out — softer than a full-width border. */
 .rule {
   height: 1px;
   background: linear-gradient(to right, var(--line-strong), transparent);
+}
+
+/* The one place the serif appears: a single phrase, italic, at display size. */
+.flourish {
+  font-family: var(--font-serif);
+  font-style: italic;
+  letter-spacing: -0.02em;
 }
 
 /*
@@ -118,7 +214,7 @@ body {
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -127,9 +223,104 @@ body {
 }
 
 .rise {
-  animation: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: rise 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* A live value, pulsing at the rate of the poll that feeds it. */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.live-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/*
+ * Camera-movement schematics for the style cards.
+ *
+ * A style card used to describe its movement in words, which asks the user to
+ * imagine the thing they are buying. These animate a frame inside a frame so
+ * the movement is visible before any credits are spent. They are diagrams, not
+ * footage: nothing here pretends to be a render.
+ */
+@keyframes camera-push {
+  from {
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.28) translate3d(0, 2%, 0);
+  }
+}
+
+@keyframes camera-orbit {
+  from {
+    transform: scale(1.12) translate3d(-6%, 3%, 0) rotate(-1.5deg);
+  }
+  to {
+    transform: scale(1.12) translate3d(6%, -3%, 0) rotate(1.5deg);
+  }
+}
+
+@keyframes camera-pan {
+  from {
+    transform: scale(1.14) translate3d(-7%, 0, 0);
+  }
+  to {
+    transform: scale(1.14) translate3d(7%, 0, 0);
+  }
+}
+
+@keyframes camera-tilt {
+  from {
+    transform: scale(1.14) translate3d(0, -6%, 0);
+  }
+  to {
+    transform: scale(1.14) translate3d(0, 6%, 0);
+  }
+}
+
+/* Faster and slightly unsettled, which is what the social style actually is. */
+@keyframes camera-snap {
+  0% {
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+  55% {
+    transform: scale(1.3) translate3d(1%, -1%, 0);
+  }
+  60% {
+    transform: scale(1.3) translate3d(-1%, 1%, 0);
+  }
+  100% {
+    transform: scale(1.34) translate3d(0, 0, 0);
+  }
+}
+
+/* Editorial barely moves; that restraint is the style. */
+@keyframes camera-hold {
+  from {
+    transform: scale(1.04);
+  }
+  to {
+    transform: scale(1.1);
+  }
+}
+
+/* The slot a photo leaves behind while it is being dragged to a new position. */
+.drop-target {
+  outline: 1px dashed var(--accent);
+  outline-offset: 3px;
+}
+
+/*
+ * Everything that moves needs its branch here. Nothing in this interface is
+ * decorative enough to be worth a headache.
+ */
 @media (prefers-reduced-motion: reduce) {
   @keyframes reel-pan {
     from,
@@ -144,7 +335,44 @@ body {
       opacity: 0;
     }
   }
-  .rise {
+  @keyframes camera-push {
+    from,
+    to {
+      transform: scale(1.1);
+    }
+  }
+  @keyframes camera-orbit {
+    from,
+    to {
+      transform: scale(1.1);
+    }
+  }
+  @keyframes camera-pan {
+    from,
+    to {
+      transform: scale(1.1);
+    }
+  }
+  @keyframes camera-tilt {
+    from,
+    to {
+      transform: scale(1.1);
+    }
+  }
+  @keyframes camera-snap {
+    from,
+    to {
+      transform: scale(1.1);
+    }
+  }
+  @keyframes camera-hold {
+    from,
+    to {
+      transform: scale(1.1);
+    }
+  }
+  .rise,
+  .live-dot {
     animation: none;
   }
 }

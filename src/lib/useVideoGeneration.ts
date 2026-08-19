@@ -20,6 +20,8 @@ function nextInterval(previous: number) {
 
 export function useVideoGeneration() {
   const [state, setState] = useState<State>({ stage: "idle" });
+  /** The single clip being re-submitted right now, so its row can say so. */
+  const [busyClipId, setBusyClipId] = useState<string | undefined>();
 
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -170,11 +172,51 @@ export function useVideoGeneration() {
     }
   }, [pollBatch, state.batch?.batchId, stop]);
 
+  /**
+   * Re-render one shot, on demand.
+   *
+   * Kept next to `retryFailed` but distinct from it: the user is rejecting a
+   * shot rather than recovering from an error, and it costs one provider job.
+   * Polling restarts because that clip is running again — and because the
+   * assembled file is now stale and has to be rebuilt.
+   */
+  const regenerateClip = useCallback(
+    async (clipId: string) => {
+      const batchId = state.batch?.batchId;
+      if (!batchId) return;
+
+      stop();
+      const runId = ++runIdRef.current;
+      setBusyClipId(clipId);
+
+      try {
+        const res = await fetch(`/api/generate/${batchId}/clips/${clipId}`, {
+          method: "POST",
+        });
+        const batch = await res.json();
+        if (runId !== runIdRef.current) return;
+        if (!res.ok) throw new Error(batch.error ?? "No se pudo regenerar el plano");
+
+        setState({ stage: "generating", batch });
+        pollBatch(batchId, runId);
+      } catch (err) {
+        if (runId !== runIdRef.current) return;
+        setState({
+          stage: "error",
+          error: err instanceof Error ? err.message : "Error desconocido",
+        });
+      } finally {
+        setBusyClipId(undefined);
+      }
+    },
+    [pollBatch, state.batch?.batchId, stop]
+  );
+
   const reset = useCallback(() => {
     stop();
     runIdRef.current++;
     setState({ stage: "idle" });
   }, [stop]);
 
-  return { state, generate, retryFailed, reset };
+  return { state, busyClipId, generate, retryFailed, regenerateClip, reset };
 }

@@ -27,16 +27,78 @@ npm install
 npm run dev
 ```
 
-No hace falta configurar nada. Sin `HIGGSFIELD_API_KEY`, la app usa el
-**proveedor simulado**: los clips pasan por cola → generando → listo con
-tiempos realistas, pero no se renderiza nada. En el montaje verás la foto con
-un paneo lento y la etiqueta "Simulado", nunca un vídeo falso.
+No hace falta configurar nada. Sin clave, la app usa el **proveedor simulado**:
+los clips pasan por cola → generando → listo con tiempos realistas, pero no se
+renderiza nada. En el montaje verás la foto con un paneo lento y la etiqueta
+"Simulado", nunca un vídeo falso. La cabecera lo dice siempre.
 
-Para renders reales:
+Para renders reales, **Ajustes → Motor de vídeo**, elige cómo quieres conectar
+Higgsfield y rellena sus campos. Se guarda en el servidor, se comprueba contra
+el motor y no hace falta reiniciar nada. Nada sensible vuelve al navegador: un
+campo secreto sale enmascarado (`····1234`).
+
+Para que sobreviva a un reinicio, ponla en el entorno:
 
 ```bash
 cp .env.example .env.local   # y rellena HIGGSFIELD_API_KEY
 ```
+
+Una clave puesta en el entorno **manda** sobre el panel, que la muestra
+bloqueada — si no, cualquiera que llegue a Ajustes podría desviar el gasto a
+otra cuenta.
+
+## Motores de vídeo
+
+El mismo proveedor es alcanzable de tres formas, y eso cambia el **transporte**,
+no lo que hace. Así que un motor es un *plugin*: un backend más los campos que
+la interfaz tiene que pedir.
+
+| Plugin | Cómo | Para |
+| --- | --- | --- |
+| **Higgsfield · API** | REST con una clave | La vía directa. Funciona en cualquier host. |
+| **Higgsfield · MCP** | Servidor MCP, remoto o local | Si ya lo tienes conectado y no quieres emitir otra clave. |
+| **Línea de comandos** | Cualquier binario con contrato `create`/`status` | Envolver el CLI de un proveedor, o un script propio. |
+| *(ninguno)* | Simulado | Por defecto. No renderiza ni gasta. |
+
+El panel de Ajustes se dibuja solo a partir de los campos que declara cada
+plugin, así que añadir un motor es un módulo y una línea en
+[`providers/plugins.ts`](src/lib/providers/plugins.ts) — ningún componente
+cambia.
+
+**MCP** ([`lib/mcp/client.ts`](src/lib/mcp/client.ts)) es un cliente JSON-RPC
+mínimo, sin dependencias. La secuencia la fija el propio servidor: importar la
+foto (`media_import_url`), lanzar el trabajo (`generate_video`) y sondearlo
+(`job_status`). Ojo: la importación exige **HTTPS**, así que las fotos tienen
+que ser públicas de verdad.
+
+**Línea de comandos** es un puente genérico, no el CLI de nadie en concreto —
+los flags de cada proveedor cambian y atarse a unos sería una apuesta con fecha
+de caducidad:
+
+```bash
+<command> create        # stdin  {imageUrl,prompt,negativePrompt,aspectRatio,durationSeconds}
+                        # stdout {"id":"…","status":"queued"}
+<command> status <id>   # stdout {"status":"completed","videoUrl":"…"}
+```
+
+⚠️ El plugin de CLI y el MCP local **lanzan procesos en el servidor** con lo que
+diga el panel. Para cualquiera que pase el código de acceso eso es ejecución de
+código arbitrario, así que están desactivados salvo que pongas
+`ENGINE_ALLOW_COMMANDS=1`.
+
+## Acceso
+
+Cada vídeo consume créditos, así que una URL abierta es una cartera abierta:
+
+```bash
+APP_ACCESS_CODE=loquesea npm run dev
+```
+
+Con eso, todo queda detrás de un código y una cookie firmada. Sin eso la app
+está abierta a quien llegue, y el panel de Ajustes lo dice en rojo.
+
+`/uploads` queda deliberadamente fuera del cerrojo: el proveedor de vídeo
+descarga esas fotos él mismo y no tiene ninguna cookie que presentar.
 
 ## Inmuebles, estilos y escenas
 
@@ -79,7 +141,10 @@ inglés mucho mejor) y no debe viajar al navegador.
 ## Flujo
 
 1. El usuario arrastra las fotos ([`PhotoDropzone`](src/components/PhotoDropzone.tsx)),
-   las ordena y marca qué es cada una. **Ese orden es el del vídeo final.**
+   las ordena arrastrándolas y corrige qué es cada una. **Ese orden es el del
+   vídeo final.** Cada foto se preclasifica por su nombre de fichero
+   (`salon-2.jpg`, `master-bedroom.jpg`), y por posición cuando el nombre no
+   dice nada — ver [`prompts/classify.ts`](src/lib/prompts/classify.ts).
 2. `POST /api/upload` las guarda y devuelve URLs absolutas.
 3. `POST /api/generate` resuelve el prompt de cada foto y hace el fan-out:
    N fotos → N jobs. Devuelve un `batchId` sin esperar al render.
@@ -94,6 +159,24 @@ inglés mucho mejor) y no debe viajar al navegador.
    el host, el recorrido sigue siendo reproducible y solo falta el fichero.
 7. Si quedaron clips fallidos, `POST /api/generate/[batchId]` reintenta **solo
    esos**, sin volver a pagar los que ya salieron.
+8. Un plano que salió bien pero no convence se re-renderiza suelto con
+   `POST /api/generate/[batchId]/clips/[clipId]`. Cuesta un trabajo, no un
+   lote, y descarta el MP4 montado porque el metraje ha cambiado.
+
+## La marca de la agencia
+
+En **Ajustes → Marca** se guardan nombre, contacto y logotipo, y se activan dos
+cosas que se estampan en el fichero descargable:
+
+- **Cartón final** — cierra el vídeo con el nombre y el teléfono. Es la
+  diferencia entre un clip bonito y una pieza de marketing: sin él, el vídeo
+  acaba en una habitación y nadie sabe a quién llamar. Se dibuja con `next/og`
+  y no con `drawtext`, que necesita adivinar una ruta de fuente por host y
+  destroza los acentos cuando acierta con la equivocada.
+- **Marca de agua** — el logotipo, discreto, en una esquina.
+
+Nada de esto puede tumbar un montaje: si el logotipo no se descarga o el cartón
+no se dibuja, se pierde la marca y no el vídeo, que el cliente ya ha pagado.
 
 ## Estados de un lote
 
@@ -109,19 +192,32 @@ inglés mucho mejor) y no debe viajar al navegador.
 ```
 src/
   app/
-    page.tsx                        # UI principal
+    page.tsx                        # entrada de servidor: resuelve ajustes
+    entrar/page.tsx                 # la puerta, cuando hay código de acceso
+    opengraph-image.tsx             # tarjeta del enlace al compartirlo
+    api/settings/                   # conexión del proveedor y marca
+    api/auth/route.ts               # entrar y salir
     api/upload/route.ts             # sube fotos → URLs
     api/generate/route.ts           # POST: fan-out del lote
     api/generate/[batchId]/route.ts # GET: estado · POST: reintentar fallidos
     api/styles/route.ts             # catálogo público (sin los prompts)
   components/
+    AppShell.tsx                    # cabecera, estado del motor y ajustes
+    Studio.tsx                      # el espacio de trabajo
+    SettingsPanel.tsx               # conectar Higgsfield · marca · acceso
+    StylePreview.tsx                # esquema animado del movimiento
+    ShotList.tsx                    # regenerar o descargar un plano
     PhotoDropzone.tsx               # drag & drop, reordenar y tipo de escena
     PropertyPicker.tsx              # elección de tipo de inmueble
     StylePicker.tsx                 # elección de estilo
     ClipProgressList.tsx            # progreso por clip
     ReelPlayer.tsx                  # reproduce el montaje
   lib/
+    settings/                       # ajustes en caliente (clave, marca)
+    auth/session.ts                 # código de acceso y cookie firmada
+    ratelimit.ts                    # límite por IP en lo que cuesta dinero
     prompts/
+      classify.ts                   # qué muestra cada foto
       styles.ts                     # catálogo de estilos
       properties.ts                 # catálogo de tipos de inmueble
       scenes.ts                     # catálogo de escenas
@@ -137,9 +233,15 @@ src/
     stitch/                         # el MP4 descargable
       index.ts                      # selección de backend
       ffmpeg.ts                     # codificación real
-    providers/                      # backends de vídeo
-      index.ts                      # selección de proveedor
-      higgsfield.ts                 # proveedor real
+      endcard.tsx                   # el cartón final, dibujado como PNG
+    mcp/client.ts                   # cliente MCP mínimo (http y stdio)
+    providers/                      # motores de vídeo
+      index.ts                      # selección de motor
+      plugins.ts                    # el registro de plugins
+      higgsfield.ts                 # plugin de API REST
+      higgsfield-mcp.ts             # plugin de MCP
+      higgsfield-cli.ts             # plugin de línea de comandos
+      status.ts                     # vocabulario de estados compartido
       mock.ts                       # proveedor simulado
     storage/                        # dónde van las fotos
       index.ts                      # selección de driver
@@ -182,7 +284,7 @@ que importan:
 
 | Variable | Por defecto | Para qué |
 | --- | --- | --- |
-| `VIDEO_PROVIDER` | auto | `mock` o `higgsfield`. Sin valor: higgsfield si hay API key, si no mock. |
+| `VIDEO_PROVIDER` | auto | `mock`, `higgsfield-api`, `higgsfield-mcp` o `cli`. Sin valor: el plugin conectado, y si no hay ninguno, mock. |
 | `STORAGE_DRIVER` | `local` | Dónde se guardan las fotos. |
 | `BATCH_STORE` | `memory` | Dónde viven los lotes. |
 | `MAX_PHOTOS_PER_BATCH` | 20 | Cada foto es un job: esto acota el gasto. |
@@ -194,6 +296,10 @@ que importan:
 | `STITCH_DRIVER` | auto | `ffmpeg` o `none`. Sin valor: ffmpeg si está disponible. |
 | `FFMPEG_PATH` | `ffmpeg` | Ruta al binario si no está en el PATH. |
 | `MOCK_FAILURE_RATE` | 0 | Fracción de fallos simulados, para probar `partial` y reintentos. |
+| `APP_ACCESS_CODE` | — | Sin él, la app está abierta a quien llegue a la URL. |
+| `APP_SESSION_SECRET` | el código | Firma la cookie. Cambiarlo cierra todas las sesiones. |
+| `APP_URL` | `http://localhost:3000` | URL pública. La usan la tarjeta del enlace y el montaje al descargar el logotipo. |
+| `ENGINE_ALLOW_COMMANDS` | — | Permite lanzar procesos (plugin CLI y MCP local). Desactivado por defecto. |
 
 Para ver el camino de fallo:
 
@@ -207,7 +313,8 @@ MOCK_FAILURE_RATE=0.4 npm run dev
   [`providers/higgsfield.ts`](src/lib/providers/higgsfield.ts) son un
   placeholder razonable. Confírmalos contra la documentación de tu cuenta.
   Todo lo demás es agnóstico del proveedor, así que corregirlos es un cambio de
-  un solo archivo.
+  un solo archivo. La vía MCP no tiene ese problema: allí las entradas las fija
+  el esquema del propio servidor.
 - **El almacén de lotes es memoria de un proceso**: en serverless o con varias
   instancias, dos sondeos consecutivos pueden caer en procesos distintos y dar
   404. Implementa `BatchStore` sobre Redis/Postgres/KV y regístralo en
@@ -216,8 +323,14 @@ MOCK_FAILURE_RATE=0.4 npm run dev
   En serverless implementa `StorageProvider` sobre S3, Cloudinary o Vercel Blob.
   Además el proveedor descarga las URLs él mismo, así que en producción tienen
   que ser públicas de verdad.
-- **No hay autenticación**: cualquiera que llegue a la URL puede gastar tus
-  créditos. Hace falta login y control de consumo antes de abrirlo.
+- **El acceso es un código compartido, no usuarios.** `APP_ACCESS_CODE` cierra
+  la puerta y `src/lib/ratelimit.ts` acota el gasto por IP, que es suficiente
+  para una agencia y no para vender por suscripción: no hay cuentas, ni
+  consumo por cliente, ni facturación. La costura es
+  [`src/lib/auth/session.ts`](src/lib/auth/session.ts).
+- **La clave conectada desde el panel vive en memoria** y se pierde al
+  reiniciar. Persistirla exige cifrarla en reposo contra un almacén de
+  secretos de verdad, que es la misma decisión que la de la base de datos.
 - **El montaje corre en segundo plano dentro del proceso web.** Sobrevive en un
   servidor de larga vida, pero en serverless lo matan a mitad de la
   codificación: allí hace falta una cola y un worker. El hueco es

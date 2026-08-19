@@ -59,9 +59,13 @@ vi.mock("@/lib/providers", async (importOriginal) => ({
   getVideoProvider: () => stubProvider,
 }));
 
-const { createBatch, refreshBatch, retryFailedClips, ValidationError } = await import(
-  "@/lib/engine/pipeline"
-);
+const {
+  createBatch,
+  refreshBatch,
+  regenerateClip,
+  retryFailedClips,
+  ValidationError,
+} = await import("@/lib/engine/pipeline");
 
 beforeEach(() => {
   control.failOnUrls.clear();
@@ -413,5 +417,68 @@ describe("retryFailedClips", () => {
 
   it("404s on a batch that does not exist", async () => {
     await expect(retryFailedClips("no-such-batch")).resolves.toBeUndefined();
+  });
+});
+
+describe("regenerateClip — the user rejecting a shot", () => {
+  it("re-submits a clip that finished perfectly well", async () => {
+    const created = await createBatch([photo(1), photo(2)]);
+    const target = created.clips[1];
+    control.statuses.set(target.providerJobId, "completed");
+    control.statuses.set(created.clips[0].providerJobId, "completed");
+
+    const settled = await refreshBatch(created.batchId);
+    expect(settled?.status).toBe("completed");
+
+    const before = control.created.length;
+    const regenerated = await regenerateClip(created.batchId, target.clipId);
+    const clip = regenerated?.clips.find((c) => c.clipId === target.clipId);
+
+    // Exactly one new job: this action costs one render, not a whole batch.
+    expect(control.created.length).toBe(before + 1);
+    expect(clip?.status).toBe("queued");
+  });
+
+  it("keeps clipId and index across the re-render", async () => {
+    // `index` is the position in the finished video and `clipId` is what the
+    // UI keys on — losing either is a reordered or flickering reel.
+    const created = await createBatch([photo(1), photo(2), photo(3)]);
+    const target = created.clips[1];
+
+    const regenerated = await regenerateClip(created.batchId, target.clipId);
+    const clip = regenerated?.clips.find((c) => c.clipId === target.clipId);
+
+    expect(clip?.index).toBe(1);
+    expect(clip?.imageUrl).toBe(target.imageUrl);
+    expect(regenerated?.clips.map((c) => c.index)).toEqual([0, 1, 2]);
+  });
+
+  it("drops the assembled download, because the footage changed", async () => {
+    const created = await createBatch([photo(1)]);
+    control.statuses.set(created.clips[0].providerJobId, "completed");
+    const settled = await refreshBatch(created.batchId);
+    expect(settled?.reel).toBeDefined();
+
+    const regenerated = await regenerateClip(created.batchId, created.clips[0].clipId);
+
+    // A stale file would show the old shot the user just rejected.
+    expect(regenerated?.reel).toBeUndefined();
+    expect(regenerated?.status).toBe("processing");
+  });
+
+  it("resets the attempt counter, so the clip gets its own retries", async () => {
+    const created = await createBatch([photo(1)]);
+    const regenerated = await regenerateClip(created.batchId, created.clips[0].clipId);
+
+    expect(regenerated?.clips[0].attempts).toBe(1);
+  });
+
+  it("rejects an unknown clip and reports an unknown batch", async () => {
+    const created = await createBatch([photo(1)]);
+
+    await expect(regenerateClip(created.batchId, "no-existe")).rejects.toBeInstanceOf(
+      ValidationError
+    );
+    await expect(regenerateClip("no-existe", "tampoco")).resolves.toBeUndefined();
   });
 });

@@ -1,12 +1,40 @@
 ---
 name: video-provider
-description: Cómo añadir, corregir o depurar un backend de vídeo en houseaimage (Higgsfield, Runway, Kling, Luma, simulado…). Úsala al integrar un proveedor nuevo, al ajustar rutas/payloads de la API de Higgsfield porque devuelve 4xx o campos inesperados, al mapear estados del proveedor, o cuando los clips salgan `failed` sin motivo claro. También si hay que cambiar de proveedor o soportar varios.
+description: Cómo añadir, corregir o depurar un motor de vídeo en houseaimage — plugins de API REST, MCP y línea de comandos (Higgsfield, Runway, Kling, Luma, simulado…). Úsala al integrar un backend nuevo, al ajustar rutas o payloads porque devuelven 4xx o campos inesperados, al mapear estados del proveedor, cuando los clips salgan `failed` sin motivo claro, o al tocar el cliente MCP y la ejecución de comandos.
 ---
 
-# Proveedores de vídeo
+# Motores de vídeo
 
 Todo lo específico de un backend vive en `src/lib/providers/`. El resto del
 código no sabe cuál está en uso, y así debe seguir.
+
+## Dos capas, no una
+
+```
+ProviderPlugin   qué se le pide al operador, y cómo construirlo   ← se elige en Ajustes
+   └─ VideoProvider   crear un job y consultarlo                  ← lo usa el pipeline
+```
+
+`VideoProvider` ya existía y bastaba mientras todos los backends se alcanzaban
+igual: HTTP con un bearer. Dejó de bastar cuando **el mismo proveedor pasó a ser
+alcanzable de tres formas** — su API REST, su servidor MCP y un binario en el
+host. Eso cambia el *transporte* y lo que hay que configurar, no lo que hace.
+
+Un plugin es un `VideoProvider` más las dos cosas que la interfaz necesita para
+ofrecerlo con honestidad: qué campos pedir y cómo se llega.
+
+| Plugin | Transporte | Fichero |
+| --- | --- | --- |
+| `higgsfield-api` | REST + clave | `providers/higgsfield.ts` |
+| `higgsfield-mcp` | MCP (HTTP o proceso local) | `providers/higgsfield-mcp.ts` |
+| `cli` | Binario con contrato create/status | `providers/higgsfield-cli.ts` |
+
+El registro es `providers/plugins.ts`. Añadir un backend es un módulo y una
+línea ahí: **el panel de Ajustes se dibuja solo** a partir de `fields`, así que
+no hay que tocar ningún componente.
+
+El proveedor simulado **no** está en el registro a propósito: es la *ausencia*
+de plugin, no una opción entre ellos.
 
 ## El contrato
 
@@ -15,70 +43,118 @@ interface VideoProvider {
   readonly name: string;
   createClipJob(input: CreateClipInput): Promise<ProviderClipJob>;
   getClipJobStatus(providerJobId: string): Promise<ProviderClipStatus>;
+  verifyCredentials?(): Promise<ProviderVerification>;   // opcional
 }
 ```
 
-Dos reglas no negociables:
+Reglas no negociables, valgan para el transporte que valgan:
 
-- **Una imagen por job.** `CreateClipInput` lleva un solo `imageUrl`. Si un
-  proveedor aceptase varias, sigue mandando una: el montaje y el orden dependen
-  de que un clip corresponda exactamente a una foto.
-- **Sin estado.** Todo lo necesario para retomar el sondeo tras un reinicio
-  tiene que caber en `providerJobId`. Mira `providers/mock.ts`: codifica el
-  instante de creación y la duración en el propio id, así que su estado es
-  función pura del id y el reloj.
+- **Una imagen por job.** `CreateClipInput` lleva un solo `imageUrl`. Aunque un
+  backend acepte varias, manda una: el montaje y el orden dependen de que un
+  clip corresponda exactamente a una foto.
+- **Los proveedores no escriben prompts.** Llega `resolved` ya compuesto por
+  `src/lib/prompts`. No lo reescribas ni lo traduzcas.
+- **Un estado desconocido es `processing`, nunca `failed`.** Usa
+  `normalizeStatus` de `providers/status.ts` — está compartido justo para que
+  esta regla no exista en dos copias que se separen.
+- **Terminado sin vídeo es un fallo.** Un job `completed` sin URL es un contrato
+  roto; devuélvelo como `failed` para que el clip siga siendo reintentable en
+  vez de dejar un hueco silencioso en el recorrido.
+- **Clasifica tus propios errores.** Solo el proveedor sabe qué significan sus
+  códigos. `unauthorized` e `invalid_input` son permanentes y no se reintentan;
+  el resto son transitorios.
 
-## Añadir un proveedor
+## Las credenciales no salen de `process.env`
 
-1. Crea `src/lib/providers/<nombre>.ts` exportando un `VideoProvider`.
-2. Regístralo en el mapa `PROVIDERS` de `providers/index.ts`.
-3. Documenta sus variables en `.env.example`.
+Llegan como `PluginConfig` desde `src/lib/settings`, que decide entre el entorno
+y lo conectado en el panel:
 
-No hace falta tocar nada más. Si te ves editando `pipeline.ts` o la UI para
-soportar un proveedor, la abstracción se está filtrando: corrígela ahí.
-
-## Mapear estados
-
-Usa `normalizeStatus` de `higgsfield.ts` como plantilla. Lo importante:
-
-- Lista explícitamente los estados terminales (`completed`, `failed`) y los de
-  cola.
-- **Todo lo desconocido cae en `processing`.** Los proveedores añaden estados
-  con el tiempo. Un clip marcado por error como fallido no se recupera nunca;
-  uno marcado por error como en curso se corrige en el siguiente sondeo.
-- Un job `completed` **sin URL de vídeo** es un incumplimiento del contrato:
-  conviértelo en `failed` con un error explicativo, para que entre en la ruta
-  de reintento en vez de dejar un hueco silencioso en el montaje.
-
-## Errores
-
-- Lanza excepciones desde el proveedor. `pipeline.ts` las captura y las
-  convierte en un clip `failed`; no las tragues devolviendo un estado inventado.
-- Pon timeout a toda llamada de red (`AbortSignal.timeout`). Sin él, un
-  proveedor colgado bloquea un handler de ruta indefinidamente.
-- Trunca el cuerpo del error del proveedor antes de propagarlo: acaba en la UI.
-
-## Depurar la integración con Higgsfield
-
-Las rutas y nombres de campo de `higgsfield.ts` son un placeholder razonable,
-no doctrina. Si la API devuelve 4xx o campos que no esperas:
-
-1. Contrasta con la referencia de tu cuenta (`https://docs.higgsfield.ai` o el
-   panel). Ajusta las dos llamadas `fetch` y ya.
-2. Comprueba que las URLs de imagen son **públicas**. El proveedor las descarga
-   él; una URL de `localhost` falla en cuanto sales de dev.
-3. Aísla el problema volviendo al simulado, que descarta que el fallo esté en
-   el pipeline:
-
-```bash
-VIDEO_PROVIDER=mock npm run dev
+```ts
+create(config: PluginConfig): VideoProvider
 ```
 
-`VIDEO_PROVIDER` gana siempre sobre la detección automática, así que puedes
-forzar el simulado teniendo una API key válida.
+**El entorno gana siempre.** Si `HIGGSFIELD_API_KEY` está puesta, el panel la
+muestra bloqueada y se niega a cambiarla — de otro modo cualquiera que llegue a
+Ajustes podría redirigir el gasto a su propia cuenta.
 
-## Selección de proveedor
+Y **el proveedor se construye por operación, no se cachea**: la configuración
+puede cambiar entre un lote y el siguiente, y un closure viejo seguiría gastando
+en la cuenta de hace una hora.
 
-Por orden: `VIDEO_PROVIDER` si está puesto → `higgsfield` si hay
-`HIGGSFIELD_API_KEY` → `mock`. El último escalón es lo que permite clonar el
-repo y verlo funcionar sin configurar nada; no lo quites.
+### Los secretos no vuelven al navegador
+
+Un campo declarado `kind: "secret"` sale enmascarado (`····1234`). El panel
+sabe que una máscara no es un valor y no la reenvía. Si añades un campo con algo
+sensible, márcalo `secret` o lo estarás publicando.
+
+## MCP
+
+`src/lib/mcp/client.ts` es un cliente JSON-RPC mínimo — `initialize`,
+`tools/list`, `tools/call` — con dos transportes: **http** (servidor alojado,
+funciona en cualquier host) y **stdio** (proceso local).
+
+La secuencia de Higgsfield la fija su propio contrato de herramientas:
+
+```
+media_import_url(url)  →  media_id        # generate_video rechaza URLs sueltas
+generate_video({ model, prompt, medias:[{role:"start_image", value:media_id}] })  →  job id
+job_status(jobId)  →  estado + url del vídeo
+```
+
+Dos cosas que muerden:
+
+- **`media_import_url` exige HTTPS.** Las fotos tienen que ser públicas y con
+  TLS; un `public/uploads` en localhost no sirve.
+- **Las respuestas no tienen forma fija.** Las *entradas* sí (las pin el
+  esquema del servidor), pero cada servidor anida su respuesta a su manera. Por
+  eso `pick()` busca en profundidad `job_id`/`id`/`video_url`… en vez de leer
+  una ruta concreta. Si añades un valor que leer, añádelo a esas listas de
+  claves.
+
+## Ejecutar comandos está desactivado por defecto
+
+El plugin de CLI y el transporte stdio de MCP **lanzan procesos en el servidor
+con lo que diga el panel de Ajustes**. Eso es ejecución de código arbitrario
+para cualquiera que pase el código de acceso, así que se rechaza salvo que el
+host ponga:
+
+```bash
+ENGINE_ALLOW_COMMANDS=1
+```
+
+**No quites esa comprobación para facilitar un despliegue.** Y todo va por
+`execFile` sin shell: los argumentos se parten con `splitArgs`, que respeta
+comillas y no emula nada más de un shell.
+
+### El contrato del CLI
+
+Deliberadamente no atado a un proveedor: los flags de cada uno cambian. Dos
+verbos, JSON por stdin y por stdout:
+
+```bash
+<command> create        # stdin {imageUrl,prompt,negativePrompt,aspectRatio,durationSeconds}
+                        # stdout {"id":"…","status":"queued"}
+<command> status <id>   # stdout {"status":"completed","videoUrl":"…","progress":42}
+```
+
+Tolera que el binario escriba logs antes: se toma la última línea que sea JSON.
+`src/lib/providers/cli.test.ts` contiene una implementación de referencia.
+
+## Selección
+
+Por orden: `VIDEO_PROVIDER` si está puesto → el plugin conectado (del entorno o
+del panel) → `mock`. El último escalón es lo que permite clonar el repo y verlo
+funcionar sin configurar nada; no lo quites.
+
+Si te ves añadiendo un `if` por backend fuera de `providers/index.ts` o
+`plugins.ts`, la abstracción se está filtrando.
+
+## Cómo probarlo sin gastar créditos
+
+- `mcp.test.ts` levanta un servidor MCP falso y recorre importar → generar →
+  sondear, incluyendo respuestas por SSE y errores 401/429.
+- `cli.test.ts` ejecuta un binario de verdad (Node) que cumple el contrato.
+- El proveedor simulado cubre el pipeline entero: `MOCK_FAILURE_RATE=0.4 npm run dev`.
+
+Ninguno necesita red ni credenciales. Si tocas un invariante de arriba, **hay un
+test que debe fallar**.

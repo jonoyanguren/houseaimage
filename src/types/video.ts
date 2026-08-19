@@ -1,3 +1,5 @@
+import type { ProviderVerification } from "@/types/settings";
+
 /**
  * Domain types for the clip-per-photo generation pipeline.
  *
@@ -194,6 +196,12 @@ export interface VideoProvider {
   createClipJob(input: CreateClipInput): Promise<ProviderClipJob>;
   /** Read current state of a previously created job. */
   getClipJobStatus(providerJobId: string): Promise<ProviderClipStatus>;
+  /**
+   * Optional: check the stored credentials without creating a job, so the
+   * settings panel can tell an operator a key is wrong before a batch does.
+   * Providers that need no credentials simply omit it.
+   */
+  verifyCredentials?(): Promise<ProviderVerification>;
 }
 
 /** A clip as tracked by us, joining provider state to our own ordering. */
@@ -248,6 +256,14 @@ export interface Reel {
   strategy: "sequential-playlist" | "server-side-stitch";
   segments: ReelSegment[];
   totalDurationSeconds: number;
+  /**
+   * The reel's frame, from the chosen style.
+   *
+   * Carried on the reel rather than looked up again by whoever plays it: the
+   * player was hard-coded to 16:9, so a 9:16 social reel — half the catalogue
+   * — was cropped top and bottom in its own preview.
+   */
+  aspectRatio: string;
   /**
    * The finished, downloadable file — the thing the customer actually buys and
    * sends on WhatsApp or uploads to a portal. Undefined while only the

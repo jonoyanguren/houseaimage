@@ -8,9 +8,33 @@ import type { Reel } from "@/types/video";
  * Plays the montage as a sequential playlist: each clip runs, then the next
  * one starts, giving a continuous reel without server-side concatenation.
  *
- * When a strategy that stitches a real file is added, `reel.url` is set and we
- * hand the browser that single video instead.
+ * Once the downloadable file exists, `reel.url` is set and we hand the browser
+ * that single video instead.
  */
+
+/**
+ * The frame comes from the reel, which got it from the style.
+ *
+ * This used to be a hard-coded `aspect-video`, which cropped the top and
+ * bottom off every vertical reel — and two of the six styles are 9:16, the
+ * ones aimed at Reels and TikTok. The preview lied about the deliverable for
+ * exactly the formats where the framing is the point.
+ */
+const ASPECT: Record<string, string> = {
+  "16:9": "16 / 9",
+  "9:16": "9 / 16",
+  "4:5": "4 / 5",
+  "1:1": "1 / 1",
+};
+
+function frameStyle(aspectRatio: string): CSSProperties {
+  return {
+    aspectRatio: ASPECT[aspectRatio] ?? "16 / 9",
+    // A vertical reel would otherwise run off the bottom of the screen.
+    maxHeight: "72vh",
+  };
+}
+
 export function ReelPlayer({ reel }: { reel: Reel }) {
   const [current, setCurrent] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -58,20 +82,21 @@ export function ReelPlayer({ reel }: { reel: Reel }) {
           src={reel.url}
           controls
           playsInline
-          className="w-full rounded-sm border border-line shadow-elevated"
+          style={frameStyle(reel.aspectRatio)}
+          className="mx-auto w-full rounded-sm border border-line bg-black object-contain shadow-elevated"
         />
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <figcaption className="text-[13px] text-muted">
+          <figcaption className="text-small text-muted">
             Vídeo completo · {reel.segments.length} escenas ·{" "}
-            {formatTime(reel.totalDurationSeconds)}
+            {formatTime(reel.totalDurationSeconds)} · {reel.aspectRatio}
           </figcaption>
           <a
             href={reel.url}
             download="video-inmueble.mp4"
-            className="inline-flex items-center gap-2 rounded-full bg-accent px-6 py-2.5 text-[13px] font-medium uppercase tracking-[0.14em] text-accent-ink transition-opacity hover:opacity-90"
+            className="inline-flex items-center gap-2 rounded-sm bg-accent px-6 py-2.5 text-micro font-semibold uppercase tracking-[0.2em] text-accent-ink transition-opacity hover:opacity-90"
           >
             Descargar MP4
-            <span aria-hidden="true">↓</span>
+            <span aria-hidden="true">&darr;</span>
           </a>
         </div>
       </figure>
@@ -80,7 +105,10 @@ export function ReelPlayer({ reel }: { reel: Reel }) {
 
   return (
     <figure className="rise flex flex-col gap-4">
-      <div className="relative aspect-video overflow-hidden rounded-sm border border-line bg-black shadow-elevated">
+      <div
+        style={frameStyle(reel.aspectRatio)}
+        className="relative mx-auto w-full overflow-hidden rounded-sm border border-line bg-black shadow-elevated"
+      >
         {segment.videoUrl ? (
           <video
             ref={videoRef}
@@ -105,17 +133,17 @@ export function ReelPlayer({ reel }: { reel: Reel }) {
                 } as CSSProperties
               }
             />
-            <span className="absolute right-4 top-4 rounded-full border border-white/20 bg-black/50 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-white/80 backdrop-blur-sm">
+            <span className="absolute right-4 top-4 rounded-full border border-white/20 bg-black/50 px-3 py-1 text-micro uppercase tracking-[0.2em] text-white/80 backdrop-blur-sm">
               Vista previa simulada
             </span>
           </>
         )}
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between bg-gradient-to-t from-black/70 to-transparent px-5 pb-4 pt-16">
-          <span className="font-display text-lg leading-none text-white">
+          <span className="text-lead font-medium leading-none text-white">
             Escena {String(segment.index + 1).padStart(2, "0")}
           </span>
-          <span className="font-mono text-[11px] tracking-widest text-white/60 tabular-nums">
+          <span className="numeric text-micro text-white/60">
             {formatTime(segment.startAtSeconds)} /{" "}
             {formatTime(reel.totalDurationSeconds)}
           </span>
@@ -146,14 +174,14 @@ export function ReelPlayer({ reel }: { reel: Reel }) {
             </button>
           ))}
         </div>
-        <figcaption className="shrink-0 font-mono text-[11px] tracking-widest text-faint tabular-nums">
+        <figcaption className="shrink-0 numeric text-micro text-faint">
           {String(current + 1).padStart(2, "0")}/
           {String(reel.segments.length).padStart(2, "0")}
         </figcaption>
       </div>
 
       {reel.stitching && (
-        <p className="flex items-center gap-2 text-[13px] text-muted">
+        <p className="flex items-center gap-2 text-small text-muted">
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
           Montando el vídeo descargable…
         </p>
@@ -161,7 +189,7 @@ export function ReelPlayer({ reel }: { reel: Reel }) {
 
       {reel.stitchError && (
         // Losing the download is not losing the reel — say exactly that.
-        <p className="text-[13px] text-muted">
+        <p className="text-small text-muted">
           No se pudo montar el fichero descargable. El recorrido de arriba sigue
           siendo válido.
         </p>

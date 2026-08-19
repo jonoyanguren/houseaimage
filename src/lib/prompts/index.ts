@@ -17,6 +17,11 @@ export {
   getStyle,
 } from "@/lib/prompts/styles";
 export {
+  classifyPhoto,
+  sceneFromFilename,
+  suggestSceneType,
+} from "@/lib/prompts/classify";
+export {
   PROPERTY_PROFILES,
   PROPERTY_LIST,
   DEFAULT_PROPERTY_TYPE,
@@ -112,28 +117,6 @@ export function scenesForProperty(propertyType: PropertyType | string | undefine
     if (bRank !== -1) return 1;
     return a.order - b.order;
   });
-}
-
-/**
- * A first guess so the user never faces an empty selector.
- *
- * The heuristic is positional, but the sequence it walks comes from the
- * property: a listing for a house opens on the façade, a flat opens on the
- * living room — it has no façade of its own to show. Anything past the first
- * couple of photos is left neutral rather than guessed, because a wrong scene
- * produces worse motion than a neutral one.
- */
-export function suggestSceneType(
-  index: number,
-  total: number,
-  propertyType?: PropertyType | string
-): SceneType {
-  const primary = getProperty(propertyType).primaryScenes;
-
-  if (index < 2) return primary[index] ?? "generico";
-  if (total > 3 && index === total - 1) return primary[2] ?? "generico";
-
-  return "generico";
 }
 
 /** Styles ordered for a property type, recommended ones first. */

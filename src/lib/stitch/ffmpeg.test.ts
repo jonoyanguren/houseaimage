@@ -86,6 +86,16 @@ beforeAll(async () => {
     ], { timeout: 60_000 });
   }
 
+  // A stand-in agency logo for the watermark test. ffmpeg sniffs the file, so
+  // the server handing it out as video/mp4 makes no difference.
+  await run(ffmpeg, [
+    "-y",
+    "-f", "lavfi",
+    "-i", "color=c=white:s=240x90:d=1",
+    "-frames:v", "1",
+    path.join(workDir, "logo.png"),
+  ], { timeout: 60_000 });
+
   server = createServer(async (req, res) => {
     try {
       const file = path.join(workDir, path.basename(req.url ?? ""));
@@ -108,10 +118,11 @@ afterAll(async () => {
   if (workDir) await rm(workDir, { recursive: true, force: true }).catch(() => {});
 });
 
-function reelOf(): Reel {
+function reelOf(aspectRatio = "16:9"): Reel {
   return {
     strategy: "sequential-playlist",
     totalDurationSeconds: TOTAL_SECONDS,
+    aspectRatio,
     segments: CLIPS.map((clip, index) => ({
       clipId: `clip-${index}`,
       index,
@@ -128,7 +139,7 @@ describe.runIf(await probe())("ffmpeg stitching", () => {
   it("joins clips that disagree on resolution and frame rate", async () => {
     // A stream-copy concat fails on exactly this input; re-encoding is why we
     // pay the CPU cost.
-    const result = await ffmpegStitchProvider.stitch(reelOf(), "16:9");
+    const result = await ffmpegStitchProvider.stitch(reelOf());
 
     expect(result.bytes).toBeGreaterThan(0);
     expect(result.url).toMatch(/\.(mp4|webm)$/);
@@ -147,7 +158,7 @@ describe.runIf(await probe())("ffmpeg stitching", () => {
   it("letterboxes to the requested aspect ratio instead of cropping", async () => {
     // Cropping a property photo cuts off the room, which is the thing being
     // sold. A portrait clip in a 16:9 reel must be padded, not trimmed.
-    const result = await ffmpegStitchProvider.stitch(reelOf(), "9:16");
+    const result = await ffmpegStitchProvider.stitch(reelOf("9:16"));
 
     const produced = path.join(process.cwd(), "public", result.url.replace("/uploads/", "uploads/"));
     expect(await resolutionOf(produced)).toBe("1080x1920");
@@ -155,8 +166,66 @@ describe.runIf(await probe())("ffmpeg stitching", () => {
     await rm(produced, { force: true });
   }, 180_000);
 
+  it("appends the closing card, so the video ends on who to call", async () => {
+    // The card is drawn by `next/og` and looped by ffmpeg — the join is the
+    // part worth proving, because a bad filter graph fails silently as "no
+    // branding" rather than as an error.
+    const result = await ffmpegStitchProvider.stitch(reelOf(), {
+      brand: {
+        endCard: true,
+        watermark: false,
+        agencyName: "Fincas del Mar",
+        contact: "600 000 000",
+      },
+    });
+
+    const produced = path.join(process.cwd(), "public", result.url.replace("/uploads/", "uploads/"));
+    const duration = await durationOf(produced);
+
+    // The clips, plus the 2.5s the card holds.
+    expect(duration).toBeGreaterThan(TOTAL_SECONDS + 1.9);
+    expect(duration).toBeLessThan(TOTAL_SECONDS + 3.1);
+
+    await rm(produced, { force: true });
+  }, 180_000);
+
+  it("overlays the watermark without changing the cut", async () => {
+    const result = await ffmpegStitchProvider.stitch(reelOf(), {
+      brand: {
+        endCard: false,
+        watermark: true,
+        logoUrl: `${origin}/logo.png`,
+      },
+    });
+
+    const produced = path.join(process.cwd(), "public", result.url.replace("/uploads/", "uploads/"));
+
+    // A mark in the corner must cost nothing in length or frame.
+    expect(await durationOf(produced)).toBeLessThan(TOTAL_SECONDS + 0.6);
+    expect(await resolutionOf(produced)).toBe("1920x1080");
+
+    await rm(produced, { force: true });
+  }, 180_000);
+
+  it("keeps the video when the logo cannot be fetched", async () => {
+    // Branding is never allowed to fail a batch the customer already paid to
+    // render, so an unreachable logo costs the mark and nothing else.
+    const result = await ffmpegStitchProvider.stitch(reelOf(), {
+      brand: {
+        endCard: false,
+        watermark: true,
+        logoUrl: `${origin}/no-existe.png`,
+      },
+    });
+
+    const produced = path.join(process.cwd(), "public", result.url.replace("/uploads/", "uploads/"));
+    expect(await durationOf(produced)).toBeGreaterThan(TOTAL_SECONDS - 0.6);
+
+    await rm(produced, { force: true });
+  }, 180_000);
+
   it("refuses a reel with nothing to encode", async () => {
     const empty: Reel = { ...reelOf(), segments: [] };
-    await expect(ffmpegStitchProvider.stitch(empty, "16:9")).rejects.toThrow(/No hay clips/);
+    await expect(ffmpegStitchProvider.stitch(empty)).rejects.toThrow(/No hay clips/);
   });
 });

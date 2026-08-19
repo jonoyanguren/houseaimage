@@ -31,12 +31,13 @@ export function composeReel(
   const usable = clips.filter(isUsable).sort((a, b) => a.index - b.index);
   if (usable.length === 0) return undefined;
 
-  // Clip length comes from the chosen style unless explicitly overridden — a
-  // dynamic social reel runs on 4s cuts, a cinematic one on 7s.
+  // Clip length and frame both come from the chosen style unless explicitly
+  // overridden — a dynamic social reel runs on 4s cuts at 9:16, a cinematic
+  // one on 7s at 16:9.
+  const style = getStyle(options?.styleId);
   const durationSeconds =
-    options?.durationSeconds ??
-    getStyle(options?.styleId).durationSeconds ??
-    DEFAULT_CLIP_SECONDS;
+    options?.durationSeconds ?? style.durationSeconds ?? DEFAULT_CLIP_SECONDS;
+  const aspectRatio = options?.aspectRatio ?? style.aspectRatio;
 
   let cursor = 0;
   const segments: ReelSegment[] = usable.map((clip) => {
@@ -58,6 +59,7 @@ export function composeReel(
     strategy: "sequential-playlist",
     segments,
     totalDurationSeconds: cursor,
+    aspectRatio,
   };
 }
 

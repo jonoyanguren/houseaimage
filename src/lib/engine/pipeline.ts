@@ -222,6 +222,48 @@ export function refreshBatch(batchId: string): Promise<Batch | undefined> {
 }
 
 /**
+ * Re-render one clip, whatever state it is in.
+ *
+ * This is not a retry: the user is saying "this shot is wrong", not the engine
+ * recovering from an error. So a `completed` clip is fair game, and the cost is
+ * explicit — one job, on demand.
+ *
+ * Re-rendering changes the footage, which invalidates any assembled file.
+ * Nothing here has to handle that: `withDerivedState` compares the footage and
+ * drops a stale download by itself, and the next poll starts a fresh encode.
+ */
+export function regenerateClip(
+  batchId: string,
+  clipId: string
+): Promise<Batch | undefined> {
+  // Same lock as polling, or a regenerate landing mid-poll would let both
+  // submit a job for the same slot.
+  return withLock(batchId, async () => {
+    const batch = await getBatch(batchId);
+    if (!batch) return undefined;
+
+    const target = batch.clips.find((clip) => clip.clipId === clipId);
+    if (!target) throw new ValidationError(`Unknown clip: ${clipId}`);
+
+    const provider = getVideoProvider();
+    const submitted = await submitClip(
+      provider,
+      { imageUrl: target.imageUrl, sceneType: target.sceneType },
+      target.index,
+      batch.options,
+      1
+    );
+
+    // `adoptRetry` is what keeps `clipId` and `index` — the UI keys on the
+    // first and the finished video is ordered by the second.
+    const next = adoptRetry(target, submitted);
+    const clips = batch.clips.map((clip) => (clip.clipId === clipId ? next : clip));
+
+    return updateBatch(withDerivedState(batch, clips));
+  });
+}
+
+/**
  * Re-submit the clips that ended up failed, resetting their attempt counter.
  * Used by the "retry failed clips" action once automatic retries ran out.
  */
