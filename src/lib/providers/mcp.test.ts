@@ -1,7 +1,12 @@
 import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { McpClient } from "@/lib/mcp/client";
-import { higgsfieldMcpPlugin, resetMcpClients } from "@/lib/providers/higgsfield-mcp";
+import {
+  allowedDuration,
+  higgsfieldMcpPlugin,
+  resetMcpClients,
+  resetModelCatalog,
+} from "@/lib/providers/higgsfield-mcp";
 import { ProviderError } from "@/lib/providers/errors";
 import type { ResolvedPrompt } from "@/types/video";
 
@@ -119,6 +124,47 @@ beforeAll(async () => {
           return;
         }
 
+        if (name === "models_explore") {
+          reply({
+            structuredContent: {
+              items: [
+                {
+                  id: "cine",
+                  name: "Cinema Studio",
+                  provider_name: "Higgsfield",
+                  description: "Cinemático",
+                  durations: [5, 10],
+                  aspect_ratios: ["16:9", "9:16"],
+                  medias: [{ type: "image", roles: ["image", "start_image"] }],
+                },
+                {
+                  id: "rango",
+                  name: "Modelo con rango",
+                  duration_range: { min: 3, max: 12 },
+                  medias: [{ type: "image", roles: ["start_image"] }],
+                },
+                {
+                  // No opening frame: cannot do the one thing this app does.
+                  id: "clipify",
+                  name: "Personal Clipper",
+                  medias: [],
+                },
+              ],
+            },
+          });
+          return;
+        }
+
+        if (name === "balance") {
+          reply({ structuredContent: { credits: 839.5 } });
+          return;
+        }
+
+        if (name === "generate_video" && args?.params?.get_cost) {
+          reply({ structuredContent: { cost: { credits: 7, credits_exact: 7.5 } } });
+          return;
+        }
+
         if (name === "media_import_url") {
           // Nested on purpose: servers wrap their answers differently and the
           // plugin has to find the value wherever it is.
@@ -159,6 +205,7 @@ afterAll(() => {
 
 function reset() {
   calls.length = 0;
+  resetModelCatalog();
   toolError = null;
   requiredBearer = null;
   seenBearers.length = 0;
@@ -214,7 +261,12 @@ describe("higgsfield-mcp plugin", () => {
       resolved,
     });
 
-    expect(calls.map((c) => c.tool)).toEqual(["media_import_url", "generate_video"]);
+    // The catalogue call is what learns the model's allowed durations.
+    expect(calls.map((c) => c.tool)).toEqual([
+      "media_import_url",
+      "models_explore",
+      "generate_video",
+    ]);
     expect(calls[0].args).toMatchObject({ url: "https://example.test/salon.jpg" });
     expect(job).toMatchObject({ providerJobId: "job-7", status: "queued" });
   });
@@ -226,7 +278,8 @@ describe("higgsfield-mcp plugin", () => {
       resolved,
     });
 
-    const params = (calls[1].args as { params: Record<string, unknown> }).params;
+    const submit = calls.find((c) => c.tool === "generate_video")!;
+    const params = (submit.args as { params: Record<string, unknown> }).params;
     expect(params).toMatchObject({
       prompt: resolved.prompt,
       aspect_ratio: "16:9",
@@ -412,5 +465,113 @@ describe("what a tool refuses", () => {
     await expect(
       provider().createClipJob({ imageUrl: "https://example.test/a.jpg", resolved })
     ).rejects.toMatchObject({ kind: "provider_error" });
+  });
+});
+
+describe("the catalogue", () => {
+  it("offers only models that accept an opening frame", async () => {
+    // The same catalogue carries a model that turns a YouTube URL into clips.
+    // It is a video model, and it cannot do the one thing this app does.
+    reset();
+    const models = await provider().listModels!();
+
+    expect(models.map((m) => m.id)).toEqual(["cine", "rango"]);
+  });
+
+  it("keeps what a chooser needs to show", async () => {
+    reset();
+    const [cine] = await provider().listModels!();
+
+    expect(cine).toMatchObject({
+      label: "Cinema Studio",
+      vendor: "Higgsfield",
+      durations: [5, 10],
+      aspectRatios: ["16:9", "9:16"],
+    });
+  });
+
+  it("reads the balance", async () => {
+    reset();
+    expect(await provider().getBalance!()).toBe(839.5);
+  });
+
+  it("treats an unreadable balance as a missing number, not a failure", async () => {
+    reset();
+    failWith = { code: 500, message: "no" };
+
+    await expect(provider().getBalance!()).resolves.toBeUndefined();
+  });
+});
+
+describe("choosing the model's constraints", () => {
+  it("matches by id instead of trusting the first entry", async () => {
+    // A server that answers `get` with an unfiltered list would otherwise hand
+    // us another model's durations and we would round every clip wrongly.
+    reset();
+    await higgsfieldMcpPlugin
+      .create({ url, model: "rango" })
+      .createClipJob({ imageUrl: "https://example.test/a.jpg", resolved });
+
+    const submit = calls.find((c) => c.tool === "generate_video")!;
+    const params = (submit.args as { params: { duration: number } }).params;
+
+    // "rango" allows 3-12, so the style's seven seconds survive intact. Had we
+    // taken the first entry ("cine", 5 or 10) it would have become five.
+    expect(params.duration).toBe(7);
+  });
+});
+
+describe("allowedDuration", () => {
+  it("snaps to the nearest length a model lists", () => {
+    // A drone reel wants eight seconds and this model only does five or ten.
+    const model = { id: "cine", label: "Cinema", durations: [5, 10] };
+
+    expect(allowedDuration(model, 8)).toBe(10);
+    expect(allowedDuration(model, 6)).toBe(5);
+    expect(allowedDuration(model, 5)).toBe(5);
+  });
+
+  it("clamps into a continuous range", () => {
+    const model = { id: "r", label: "R", minSeconds: 3, maxSeconds: 12 };
+
+    expect(allowedDuration(model, 20)).toBe(12);
+    expect(allowedDuration(model, 1)).toBe(3);
+    expect(allowedDuration(model, 7)).toBe(7);
+  });
+
+  it("leaves the request alone when nothing is known", () => {
+    expect(allowedDuration(undefined, 8)).toBe(8);
+  });
+});
+
+describe("what it will cost", () => {
+  it("asks the backend rather than working it out here", async () => {
+    reset();
+    const estimate = await higgsfieldMcpPlugin
+      .create({ url, model: "cine" })
+      .estimateCost!({ aspectRatio: "16:9", durationSeconds: 5, clips: 10 });
+
+    expect(estimate).toMatchObject({ perClip: 7.5, total: 75 });
+  });
+
+  it("quotes without submitting anything", async () => {
+    reset();
+    await higgsfieldMcpPlugin
+      .create({ url, model: "cine" })
+      .estimateCost!({ aspectRatio: "16:9", durationSeconds: 5, clips: 1 });
+
+    const quote = calls.find((c) => c.tool === "generate_video")!;
+    expect((quote.args as { params: { get_cost: boolean } }).params.get_cost).toBe(true);
+  });
+
+  it("says so when the model will not honour the style's length", async () => {
+    // Silently rounding is how someone ends up with ten-second clips they did
+    // not ask for and did not price.
+    reset();
+    const estimate = await higgsfieldMcpPlugin
+      .create({ url, model: "cine" })
+      .estimateCost!({ aspectRatio: "16:9", durationSeconds: 8, clips: 3 });
+
+    expect(estimate.note).toContain("10s");
   });
 });

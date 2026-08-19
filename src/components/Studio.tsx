@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { PropertyType, StyleId } from "@/types/video";
 import { PhotoDropzone, type PhotoItem } from "@/components/PhotoDropzone";
@@ -12,6 +12,7 @@ import { ShotList } from "@/components/ShotList";
 import { useVideoGeneration } from "@/lib/useVideoGeneration";
 import { DEFAULT_PROPERTY_TYPE, getStyle, stylesForProperty } from "@/lib/prompts";
 import type { PhotoAnalysis } from "@/types/vision";
+import type { CostEstimate } from "@/types/video";
 
 /**
  * The workspace.
@@ -30,8 +31,54 @@ export function Studio() {
     () => stylesForProperty(DEFAULT_PROPERTY_TYPE)[0].style.id
   );
   const [prompt, setPrompt] = useState("");
+  const [estimate, setEstimate] = useState<CostEstimate | null>(null);
+  /** The last combination quoted, so an ordinary reorder does not re-ask. */
+  const quotedRef = useRef("");
   const { state, busyClipId, generate, retryFailed, regenerateClip, reset } =
     useVideoGeneration();
+
+  /**
+   * Ask what this batch would cost.
+   *
+   * Driven from the handlers that change the answer rather than from an
+   * effect: the price depends on exactly two things — how many photographs
+   * there are and which style fixes the frame and the shot length — and both
+   * arrive through a handler. An effect would fire on every unrelated render
+   * and, worse, would need a state update after paint.
+   *
+   * Silence is the correct outcome when a backend cannot quote. An absent
+   * number is better than an invented one.
+   */
+  const refreshEstimate = useCallback(async (style: StyleId, clips: number) => {
+    const key = `${style}|${clips}`;
+    if (quotedRef.current === key) return;
+    quotedRef.current = key;
+
+    if (clips === 0) {
+      setEstimate(null);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/estimate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ styleId: style, clips }),
+      });
+      const data = await res.json();
+      setEstimate(data.estimate ?? null);
+    } catch {
+      setEstimate(null);
+    }
+  }, []);
+
+  const changePhotos = useCallback(
+    (next: PhotoItem[]) => {
+      setPhotos(next);
+      void refreshEstimate(styleId, next.length);
+    },
+    [refreshEstimate, styleId]
+  );
 
   /**
    * Fold one classifier answer into the photo it belongs to.
@@ -68,7 +115,14 @@ export function Studio() {
    */
   const changePropertyType = (next: PropertyType) => {
     setPropertyType(next);
-    setStyleId(stylesForProperty(next)[0].style.id);
+    const style = stylesForProperty(next)[0].style.id;
+    setStyleId(style);
+    void refreshEstimate(style, photos.length);
+  };
+
+  const changeStyle = (next: StyleId) => {
+    setStyleId(next);
+    void refreshEstimate(next, photos.length);
   };
 
   const isBusy = state.stage === "uploading" || state.stage === "generating";
@@ -115,7 +169,7 @@ export function Studio() {
           >
             <PhotoDropzone
               photos={photos}
-              onChange={setPhotos}
+              onChange={changePhotos}
               onAnalyzed={applyAnalysis}
               propertyType={propertyType}
               disabled={isBusy}
@@ -130,7 +184,7 @@ export function Studio() {
             <StylePicker
               value={styleId}
               propertyType={propertyType}
-              onChange={setStyleId}
+              onChange={changeStyle}
               disabled={isBusy}
             />
           </Step>
@@ -179,9 +233,29 @@ export function Studio() {
               />
             </dl>
 
-            <p className="border-t border-line-faint pt-4 text-label leading-relaxed text-faint">
-              Cada fotografía es un trabajo de renderizado independiente.
-            </p>
+            {estimate ? (
+              <div className="border-t border-line-faint pt-4">
+                <div className="flex items-baseline justify-between gap-4 text-small">
+                  <span className="text-muted">Coste estimado</span>
+                  <span className="numeric text-label uppercase text-accent">
+                    {formatCredits(estimate.total)}
+                  </span>
+                </div>
+                <p className="mt-1.5 text-label leading-relaxed text-faint">
+                  {formatCredits(estimate.perClip)} por plano · lo cotiza el
+                  proveedor, no lo calculamos aquí.
+                </p>
+                {estimate.note && (
+                  <p className="mt-2 text-label leading-relaxed text-accent">
+                    {estimate.note}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="border-t border-line-faint pt-4 text-label leading-relaxed text-faint">
+                Cada fotografía es un trabajo de renderizado independiente.
+              </p>
+            )}
 
             <button
               type="button"
@@ -312,6 +386,12 @@ function TextButton({
       {children}
     </button>
   );
+}
+
+/** Credits, without a trailing `,0` on a whole number. */
+function formatCredits(credits: number): string {
+  const rounded = Math.round(credits * 10) / 10;
+  return `${rounded.toLocaleString("es-ES")} créditos`;
 }
 
 function formatTime(seconds: number) {

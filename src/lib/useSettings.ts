@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import type { BrandSettings, PublicSettings } from "@/types/settings";
 import type { PluginConfig } from "@/types/plugin";
 import type { VisionModel, VisionSettings } from "@/types/vision";
+import type { VideoModelInfo } from "@/types/video";
 
 /**
  * Client state for the settings panel.
@@ -142,6 +143,34 @@ export function useSettings(initial: PublicSettings) {
     []
   );
 
+  /**
+   * The engine's own catalogue, plus what the account has left.
+   *
+   * Not wrapped in `run`: it is a lookup for a chooser, and a backend that
+   * cannot answer should leave the field empty rather than paint an error over
+   * the whole panel.
+   */
+  const listVideoModels = useCallback(async (): Promise<{
+    models: VideoModelInfo[];
+    balance?: number;
+    error?: string;
+  }> => {
+    try {
+      const res = await fetch("/api/models");
+      const data = await res.json();
+      return {
+        models: data.models ?? [],
+        balance: data.balance,
+        error: res.ok ? undefined : data.error,
+      };
+    } catch (err) {
+      return {
+        models: [],
+        error: err instanceof Error ? err.message : "Error desconocido",
+      };
+    }
+  }, []);
+
   const uploadLogo = useCallback(
     (file: File) =>
       run(async () => {
@@ -167,6 +196,7 @@ export function useSettings(initial: PublicSettings) {
     saveBrand,
     saveVision,
     listVisionModels,
+    listVideoModels,
     uploadLogo,
   };
 }

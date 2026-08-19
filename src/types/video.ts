@@ -187,6 +187,49 @@ export interface ProviderClipStatus extends ProviderClipJob {
 }
 
 /**
+ * A model a backend can render with.
+ *
+ * Catalogues move — models are added, renamed and retired — so this is fetched
+ * from the provider rather than written down here. What we keep is only what a
+ * chooser needs plus the two constraints that can make a render fail: which
+ * durations it accepts and which frames it can produce.
+ */
+export interface VideoModelInfo {
+  id: string;
+  label: string;
+  description?: string;
+  /** Who actually made the model, which is not always the backend. */
+  vendor?: string;
+  /** Discrete lengths, when the model lists them. */
+  durations?: number[];
+  /** A continuous range, when it gives one instead. */
+  minSeconds?: number;
+  maxSeconds?: number;
+  aspectRatios?: string[];
+  tags?: string[];
+}
+
+/** What a batch would cost, before committing to it. */
+export interface CostQuery {
+  aspectRatio: string;
+  durationSeconds: number;
+  /** How many clips the batch will contain — one per photograph. */
+  clips: number;
+}
+
+export interface CostEstimate {
+  /** In the backend's own units. Credits, for Higgsfield. */
+  perClip: number;
+  total: number;
+  /**
+   * Set when the backend refused something and used another value: a duration
+   * the model does not accept, most often. Shown, because a silent adjustment
+   * is how someone ends up with four-second clips they did not ask for.
+   */
+  note?: string;
+}
+
+/**
  * A video backend. Implementations must be stateless — everything we need to
  * resume polling after a restart lives in the job store, not in the provider.
  */
@@ -202,6 +245,21 @@ export interface VideoProvider {
    * Providers that need no credentials simply omit it.
    */
   verifyCredentials?(): Promise<ProviderVerification>;
+  /**
+   * Optional: the models this backend can render with, so the operator picks
+   * from what exists today instead of typing an id from a blog post.
+   */
+  listModels?(): Promise<VideoModelInfo[]>;
+  /**
+   * Optional: what a batch would cost, asked before it is submitted.
+   *
+   * The whole point is that it is answered by the backend rather than
+   * calculated here: only it knows what a resolution or an extra second does
+   * to the price.
+   */
+  estimateCost?(query: CostQuery): Promise<CostEstimate>;
+  /** Optional: what the account has left to spend. */
+  getBalance?(): Promise<number | undefined>;
 }
 
 /** A clip as tracked by us, joining provider state to our own ordering. */

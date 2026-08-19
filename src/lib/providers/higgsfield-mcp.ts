@@ -1,7 +1,10 @@
 import type {
+  CostEstimate,
+  CostQuery,
   CreateClipInput,
   ProviderClipJob,
   ProviderClipStatus,
+  VideoModelInfo,
   VideoProvider,
 } from "@/types/video";
 import type { PluginConfig, ProviderPlugin } from "@/types/plugin";
@@ -37,6 +40,18 @@ import { DEFAULT_CLIP_SECONDS } from "@/lib/config";
 const TOOL_IMPORT = "media_import_url";
 const TOOL_GENERATE = "generate_video";
 const TOOL_STATUS = "job_status";
+const TOOL_MODELS = "models_explore";
+const TOOL_BALANCE = "balance";
+
+/**
+ * The role that means "this photograph is the opening frame".
+ *
+ * The catalogue is filtered by it, and that filter is the difference between a
+ * useful list and a trap: the same catalogue carries a model that turns a
+ * YouTube URL into clips and one that builds product ads from a folder. Both
+ * are video models. Neither can do the one thing this app does.
+ */
+const START_FRAME_ROLE = "start_image";
 
 /**
  * Default generation model.
@@ -45,6 +60,25 @@ const TOOL_STATUS = "job_status";
  * fallback; the server's own guidance points here for image-driven work.
  */
 const DEFAULT_MODEL = "seedance_2_5";
+
+/**
+ * Model descriptions, cached per server and model.
+ *
+ * Every clip needs the same answer — what durations does this model accept —
+ * and a batch is twenty clips. Asking the catalogue twenty times would add a
+ * round trip to each photograph for information that does not change.
+ */
+const globalForCatalog = globalThis as unknown as {
+  __houseaimageModelInfo?: Map<string, VideoModelInfo | null>;
+};
+
+const modelInfo: Map<string, VideoModelInfo | null> = (globalForCatalog.__houseaimageModelInfo ??=
+  new Map<string, VideoModelInfo | null>());
+
+/** Test seam, and the escape hatch when a catalogue changes under us. */
+export function resetModelCatalog(): void {
+  modelInfo.clear();
+}
 
 /** One client per configuration, kept alive across polls. */
 const globalForMcp = globalThis as unknown as {
@@ -237,6 +271,64 @@ function asProviderError(err: unknown): ProviderError {
   return new ProviderError("provider_error", message);
 }
 
+/** Read one model entry into the shape a chooser needs. */
+function toModelInfo(raw: Record<string, unknown>): VideoModelInfo | undefined {
+  const id = typeof raw.id === "string" ? raw.id : undefined;
+  if (!id) return undefined;
+
+  // Only image-to-video: everything else in the catalogue would fail on the
+  // first photo, and offering it is worse than hiding it.
+  const medias = Array.isArray(raw.medias) ? raw.medias : [];
+  const acceptsStartFrame = medias.some((media) => {
+    const roles = (media as { roles?: unknown }).roles;
+    return Array.isArray(roles) && roles.includes(START_FRAME_ROLE);
+  });
+  if (!acceptsStartFrame) return undefined;
+
+  const range = raw.duration_range as { min?: number; max?: number } | undefined;
+  const durations = Array.isArray(raw.durations)
+    ? raw.durations.filter((d): d is number => typeof d === "number")
+    : undefined;
+
+  return {
+    id,
+    label: typeof raw.name === "string" ? raw.name : id,
+    description: typeof raw.description === "string" ? raw.description : undefined,
+    vendor: typeof raw.provider_name === "string" ? raw.provider_name : undefined,
+    durations: durations?.length ? durations : undefined,
+    minSeconds: typeof range?.min === "number" ? range.min : undefined,
+    maxSeconds: typeof range?.max === "number" ? range.max : undefined,
+    aspectRatios: Array.isArray(raw.aspect_ratios)
+      ? raw.aspect_ratios.filter((a): a is string => typeof a === "string")
+      : undefined,
+    tags: Array.isArray(raw.tags)
+      ? raw.tags.filter((t): t is string => typeof t === "string")
+      : undefined,
+  };
+}
+
+/**
+ * The length this model will actually render.
+ *
+ * A style fixes its own clip length — a drone reel runs on eight seconds — and
+ * a model may only accept five or ten. Sending eight anyway gets it silently
+ * rounded somewhere we cannot see, so it is rounded here, where the estimate
+ * and the submission can agree on the same number.
+ */
+export function allowedDuration(model: VideoModelInfo | undefined, wanted: number): number {
+  if (!model) return wanted;
+
+  if (model.durations?.length) {
+    return model.durations.reduce((best, option) =>
+      Math.abs(option - wanted) < Math.abs(best - wanted) ? option : best
+    );
+  }
+
+  const low = model.minSeconds ?? wanted;
+  const high = model.maxSeconds ?? wanted;
+  return Math.min(Math.max(wanted, low), high);
+}
+
 function createProvider(config: PluginConfig): VideoProvider {
   const model = config.model?.trim() || DEFAULT_MODEL;
 
@@ -251,6 +343,39 @@ function createProvider(config: PluginConfig): VideoProvider {
     }
 
     return payloadOf(result);
+  }
+
+  /**
+   * This model's constraints, fetched once and remembered.
+   *
+   * Every clip in a batch needs the same answer, and a batch is twenty clips:
+   * asking the catalogue each time would add a round trip per photograph for
+   * information that does not change.
+   */
+  async function describeChosenModel(): Promise<VideoModelInfo | undefined> {
+    const key = `${config.url ?? config.command ?? ""}|${model}`;
+    if (modelInfo.has(key)) return modelInfo.get(key) ?? undefined;
+
+    try {
+      const payload = await call(TOOL_MODELS, { action: "get", model_id: model });
+      const items = (payload as { items?: unknown[] })?.items;
+
+      // Matched by id rather than taking the first entry: a server that
+      // answers `get` with an unfiltered list would otherwise hand us another
+      // model's durations, and we would round every clip to the wrong length.
+      const candidates = Array.isArray(items) ? items : [payload];
+      const info = candidates
+        .map((item) => toModelInfo(item as Record<string, unknown>))
+        .find((candidate) => candidate?.id === model);
+
+      modelInfo.set(key, info ?? null);
+      return info;
+    } catch {
+      // Not knowing the constraints is no reason to refuse the clip: the
+      // backend applies its own rounding, as it did before we asked.
+      modelInfo.set(key, null);
+      return undefined;
+    }
   }
 
   return {
@@ -310,6 +435,65 @@ function createProvider(config: PluginConfig): VideoProvider {
       }
     },
 
+    async listModels(): Promise<VideoModelInfo[]> {
+      const payload = await call(TOOL_MODELS, {
+        action: "list",
+        type: "video",
+        limit: 60,
+      });
+
+      const items = (payload as { items?: unknown })?.items;
+      if (!Array.isArray(items)) return [];
+
+      return items
+        .map((item) => toModelInfo(item as Record<string, unknown>))
+        .filter((model): model is VideoModelInfo => Boolean(model));
+    },
+
+    async getBalance(): Promise<number | undefined> {
+      try {
+        const payload = await call(TOOL_BALANCE, {});
+        const credits = pick(payload, ["credits", "balance"]);
+        return typeof credits === "number" ? credits : undefined;
+      } catch {
+        // A balance we cannot read is a number missing from a panel, not a
+        // reason to fail anything.
+        return undefined;
+      }
+    },
+
+    async estimateCost(query: CostQuery): Promise<CostEstimate> {
+      const catalogue = await this.listModels!();
+      const chosen = catalogue.find((m) => m.id === model);
+      const duration = allowedDuration(chosen, query.durationSeconds);
+
+      // Asked of the backend rather than computed here: only it knows what a
+      // resolution, a second more or an audio track does to the price.
+      const payload = await call(TOOL_GENERATE, {
+        params: {
+          model,
+          prompt: "cost estimate",
+          aspect_ratio: query.aspectRatio,
+          duration,
+          get_cost: true,
+        },
+      });
+
+      const credits = pick(payload, ["credits_exact", "credits"]);
+      if (typeof credits !== "number") {
+        throw new ProviderError("provider_error", "El proveedor no devolvió un coste");
+      }
+
+      return {
+        perClip: credits,
+        total: credits * query.clips,
+        note:
+          duration !== query.durationSeconds
+            ? `Este modelo no admite ${query.durationSeconds}s: los planos durarán ${duration}s.`
+            : undefined,
+      };
+    },
+
     async createClipJob(input: CreateClipInput): Promise<ProviderClipJob> {
       const { resolved, options } = input;
 
@@ -329,15 +513,18 @@ function createProvider(config: PluginConfig): VideoProvider {
           );
         }
 
+        const wanted =
+          options?.durationSeconds ?? resolved.durationSeconds ?? DEFAULT_CLIP_SECONDS;
+
         const created = await call(TOOL_GENERATE, {
           params: {
             model,
             prompt: resolved.prompt,
             aspect_ratio: options?.aspectRatio ?? resolved.aspectRatio,
-            duration:
-              options?.durationSeconds ??
-              resolved.durationSeconds ??
-              DEFAULT_CLIP_SECONDS,
+            // Rounded to what this model accepts, so the clip that comes back
+            // is the length the estimate quoted rather than whatever the
+            // backend silently substituted.
+            duration: allowedDuration(await describeChosenModel(), wanted),
             // `start_image` is the declared role for the opening frame, which
             // is exactly what one photo means here.
             medias: [{ role: "start_image", value: mediaId }],
@@ -428,8 +615,8 @@ export const higgsfieldMcpPlugin: ProviderPlugin = {
     {
       name: "model",
       label: "Modelo",
-      hint: "Se pasa tal cual a generate_video.",
-      kind: "text",
+      hint: "Solo se ofrecen los que aceptan una foto como primer fotograma.",
+      kind: "model",
       fallback: DEFAULT_MODEL,
       placeholder: DEFAULT_MODEL,
     },

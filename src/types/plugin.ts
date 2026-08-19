@@ -29,8 +29,10 @@ export interface PluginField {
    * `secret` never comes back to the browser — only a four-character hint.
    * `command` is run on the host, which is why it is marked as its own kind:
    * see the warning in `higgsfield-cli.ts`.
+   * `model` is a chooser filled from the backend's own catalogue, so nobody
+   * has to type an id from a blog post that may have been retired since.
    */
-  kind: "secret" | "text" | "url" | "command";
+  kind: "secret" | "text" | "url" | "command" | "model";
   required?: boolean;
   placeholder?: string;
   /** Used when the operator leaves it blank. */

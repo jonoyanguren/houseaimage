@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { PluginConfig, PublicPlugin } from "@/types/plugin";
 import type { VisionModel } from "@/types/vision";
+import type { VideoModelInfo } from "@/types/video";
 import { useSettingsContext } from "@/lib/settingsContext";
 
 /**
@@ -176,24 +177,36 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 
                 {selected && (
                   <div className="flex flex-col gap-4 border-t border-line-faint pt-5">
-                    {selected.fields.map((field) => (
-                      <Field key={field.name} label={field.label} hint={field.hint}>
-                        <input
-                          type={field.kind === "secret" ? "password" : "text"}
+                    {selected.fields.map((field) =>
+                      field.kind === "model" ? (
+                        <ModelField
+                          key={field.name}
+                          label={field.label}
+                          hint={field.hint}
                           value={config[field.name] ?? ""}
-                          onChange={(e) =>
-                            setConfig((current) => ({
-                              ...current,
-                              [field.name]: e.target.value,
-                            }))
+                          onChange={(value) =>
+                            setConfig((current) => ({ ...current, [field.name]: value }))
                           }
-                          placeholder={field.placeholder}
-                          autoComplete="off"
-                          spellCheck={false}
-                          className="numeric w-full rounded-sm border border-line bg-surface-sunken px-3.5 py-2.5 text-small outline-none transition-colors placeholder:text-faint focus:border-line-strong"
                         />
-                      </Field>
-                    ))}
+                      ) : (
+                        <Field key={field.name} label={field.label} hint={field.hint}>
+                          <input
+                            type={field.kind === "secret" ? "password" : "text"}
+                            value={config[field.name] ?? ""}
+                            onChange={(e) =>
+                              setConfig((current) => ({
+                                ...current,
+                                [field.name]: e.target.value,
+                              }))
+                            }
+                            placeholder={field.placeholder}
+                            autoComplete="off"
+                            spellCheck={false}
+                            className="numeric w-full rounded-sm border border-line bg-surface-sunken px-3.5 py-2.5 text-small outline-none transition-colors placeholder:text-faint focus:border-line-strong"
+                          />
+                        </Field>
+                      )
+                    )}
 
                     <div className="flex flex-wrap items-center gap-5">
                       <button
@@ -576,6 +589,125 @@ function DriverOption({
       <span className="text-label leading-relaxed text-muted">{hint}</span>
     </label>
   );
+}
+
+/**
+ * The model chooser, filled from the engine's own catalogue.
+ *
+ * Loaded on demand rather than on mount: the engine has to be connected and
+ * authorised first, so fetching automatically would mean a failed request
+ * every time the panel opens before that has happened.
+ *
+ * The list is already filtered to models that accept a photograph as their
+ * opening frame — the rest of the catalogue can generate video but not the
+ * kind this app makes, and offering them would be a trap. What each row shows
+ * is what actually decides the choice: who made it, and how long its shots can
+ * be, because a style asking for eight seconds gets rounded by a model that
+ * only does five or ten.
+ */
+function ModelField({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const { listVideoModels } = useSettingsContext();
+
+  const [models, setModels] = useState<VideoModelInfo[] | null>(null);
+  const [balance, setBalance] = useState<number | undefined>();
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    const result = await listVideoModels();
+    setModels(result.models);
+    setBalance(result.balance);
+    setError(result.error ?? null);
+    setLoading(false);
+  };
+
+  return (
+    <Field label={label} hint={hint}>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            disabled={loading}
+            onClick={load}
+            className="rounded-sm border border-line-strong px-4 py-2 text-micro font-semibold uppercase tracking-[0.2em] transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
+          >
+            {loading ? "Buscando" : "Ver modelos"}
+          </button>
+
+          {balance !== undefined && (
+            <span className="numeric text-micro uppercase text-muted">
+              {balance.toLocaleString("es-ES")} créditos
+            </span>
+          )}
+        </div>
+
+        {error && <p className="text-small leading-relaxed text-negative">{error}</p>}
+
+        {models && models.length === 0 && !error && (
+          <p className="text-small leading-relaxed text-muted">
+            El motor no ofrece ningún modelo que acepte una foto como primer
+            fotograma. Conéctalo y autorízalo primero.
+          </p>
+        )}
+
+        {models && models.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            {models.map((model) => (
+              <label
+                key={model.id}
+                className={`flex cursor-pointer flex-col gap-1 rounded-sm border px-3 py-2.5 transition-colors ${
+                  model.id === value
+                    ? "border-accent-line bg-accent-soft"
+                    : "border-line hover:border-line-strong"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="video-model"
+                  value={model.id}
+                  checked={model.id === value}
+                  onChange={() => onChange(model.id)}
+                  className="sr-only"
+                />
+                <span className="flex items-baseline justify-between gap-3">
+                  <span className="truncate text-small font-medium">{model.label}</span>
+                  <span className="shrink-0 numeric text-micro uppercase text-faint">
+                    {describeDurations(model)}
+                  </span>
+                </span>
+                {(model.vendor || model.description) && (
+                  <span className="truncate text-label text-muted">
+                    {[model.vendor, model.description].filter(Boolean).join(" · ")}
+                  </span>
+                )}
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+    </Field>
+  );
+}
+
+/** The lengths a model will actually render, in as few characters as possible. */
+function describeDurations(model: VideoModelInfo): string {
+  if (model.durations?.length) return `${model.durations.join("/")}s`;
+  if (model.minSeconds && model.maxSeconds) {
+    return `${model.minSeconds}-${model.maxSeconds}s`;
+  }
+  return "";
 }
 
 function Section({

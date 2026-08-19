@@ -189,6 +189,35 @@ foto (`media_import_url`), lanzar el trabajo (`generate_video`) y sondearlo
 (`job_status`). Ojo: la importación exige **HTTPS**, así que las fotos tienen
 que ser públicas de verdad.
 
+### Elegir modelo, y saber lo que cuesta antes de gastarlo
+
+El catálogo **se pide al motor**, no está escrito aquí: los modelos se añaden,
+se renombran y se retiran, y una lista a mano se convierte en mentira con
+fecha. En **Ajustes → Motor de vídeo → Ver modelos** aparecen con su fabricante
+y las duraciones que aceptan, y al lado los créditos que te quedan.
+
+Solo se ofrecen los que aceptan **una foto como primer fotograma**. El mismo
+catálogo trae modelos que convierten un vídeo de YouTube en clips o que montan
+anuncios de producto: son modelos de vídeo, y no saben hacer lo que hace esta
+aplicación. Ofrecerlos sería una trampa.
+
+El **coste sale en el raíl**, justo encima del botón que lo gasta:
+
+```
+Coste estimado                    75 créditos
+7,5 créditos por plano · lo cotiza el proveedor, no lo calculamos aquí
+```
+
+Se pregunta al motor con `get_cost`, que cotiza sin enviar ningún trabajo. Solo
+él sabe lo que hacen una resolución, un segundo más o una pista de audio al
+precio. Si un backend no sabe contestar, el raíl no dice nada: **una cifra
+ausente es mejor que una inventada**.
+
+Y si el modelo elegido no admite la duración que fija el estilo —un reel de
+dron pide 8 s y hay modelos que solo hacen 5 o 10— se redondea al valor más
+cercano **y se avisa**, porque quedarse callado es como alguien acaba con
+planos de diez segundos que ni pidió ni presupuestó.
+
 ### El MCP de Higgsfield no se conecta con una clave
 
 Responde `401` con `WWW-Authenticate: Bearer`, así que **no hay ningún token que
