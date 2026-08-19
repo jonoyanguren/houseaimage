@@ -27,25 +27,134 @@ npm install
 npm run dev
 ```
 
-No hace falta configurar nada. Sin clave, la app usa el **proveedor simulado**:
-los clips pasan por cola → generando → listo con tiempos realistas, pero no se
-renderiza nada. En el montaje verás la foto con un paneo lento y la etiqueta
-"Simulado", nunca un vídeo falso. La cabecera lo dice siempre.
+Y ya está: sin configurar nada corre con el **proveedor simulado** y puedes
+recorrer la aplicación entera sin gastar un céntimo. Para llegar a un vídeo de
+verdad, sigue la guía de aquí abajo.
 
-Para renders reales, **Ajustes → Motor de vídeo**, elige cómo quieres conectar
-Higgsfield y rellena sus campos. Se guarda en el servidor, se comprueba contra
-el motor y no hace falta reiniciar nada. Nada sensible vuelve al navegador: un
-campo secreto sale enmascarado (`····1234`).
+## De cero a un vídeo real
 
-Para que sobreviva a un reinicio, ponla en el entorno:
+Los pasos, en orden. **El orden importa**: hay dos sitios donde hacerlo al revés
+cuesta rehacerlo.
+
+### 0 · Sin configurar nada
 
 ```bash
-cp .env.example .env.local   # y rellena HIGGSFIELD_API_KEY
+npm install
+npm run dev
 ```
 
-Una clave puesta en el entorno **manda** sobre el panel, que la muestra
-bloqueada — si no, cualquiera que llegue a Ajustes podría desviar el gasto a
-otra cuenta.
+Arrastra fotos y genera. Verás el recorrido completo —abanico, progreso por
+clip, montaje— con el **proveedor simulado**: cada plano es la fotografía con un
+paneo lento y la etiqueta «Vista previa simulada». No se renderiza nada y no se
+gasta nada. Sirve para conocer la herramienta antes de conectarla.
+
+### 1 · Que un modelo mire las fotos *(opcional, recomendado)*
+
+Sin esto, la estancia de cada foto se deduce del nombre del fichero, y con
+`IMG_2481.jpg` no se deduce nada. Con esto se clasifican todas y además avisa de
+los planos de planta y las fotos inservibles, **antes** de pagarlas.
+
+```bash
+ollama pull qwen2.5vl:7b
+```
+
+**Ajustes → Clasificación de fotos → Modelo local (Ollama) → Buscar modelos →
+elígelo → Guardar.** Al guardar se precalienta el modelo, así que la primera
+foto ya no espera a que cargue.
+
+### 2 · Publicar la aplicación, o abrir un túnel
+
+**Este paso va antes de conectar el motor, no después.** El proveedor de vídeo
+descarga las fotos él mismo por HTTPS público: desde `localhost` fallan *todos*
+los clips.
+
+```bash
+cloudflared tunnel --url http://localhost:3000
+```
+
+Y arranca el servidor con la URL que te dé:
+
+```bash
+APP_URL=https://tu-tunel.example npm run dev
+```
+
+### 3 · Conectar el motor de vídeo
+
+**Ajustes → Motor de vídeo.** Tres formas, y ninguna necesita que edites
+ficheros:
+
+- **Higgsfield · API** — pega una clave de tu cuenta y listo.
+- **Higgsfield · MCP** — guarda la URL de su servidor MCP y pulsa **«Autorizar
+  en Higgsfield»**. No hay clave: entras con tu cuenta en el navegador y
+  vuelves. La sesión se renueva sola.
+- **Línea de comandos** — un binario tuyo que cumpla el contrato
+  `create`/`status`. Requiere `ENGINE_ALLOW_COMMANDS=1`.
+
+⚠️ **Autoriza después de fijar `APP_URL`.** La URL de retorno se deriva de ella,
+y cambiarla obliga a registrar el cliente otra vez.
+
+### 4 · Poder entregar el fichero
+
+Sin ffmpeg el recorrido se reproduce pero no hay MP4 que descargar, que es lo
+que el cliente se lleva.
+
+```bash
+# Windows
+winget install Gyan.FFmpeg
+# macOS
+brew install ffmpeg
+# Debian/Ubuntu
+sudo apt install ffmpeg
+```
+
+Cierra y reabre la terminal después, para que coja el PATH.
+
+### 5 · Cerrar la puerta antes de publicarla
+
+Cada vídeo consume créditos, así que una URL abierta es una cartera abierta.
+
+```bash
+APP_ACCESS_CODE=... npm run dev
+```
+
+### 6 · Poner tu marca *(opcional)*
+
+**Ajustes → Marca de la agencia**: nombre, contacto y logotipo, y activa el
+cartón final y la marca de agua. Es lo que convierte un montaje bonito en una
+pieza que una inmobiliaria publica.
+
+## La barra de estado es la lista de comprobación
+
+No hace falta que recuerdes nada de lo anterior: la aplicación lo dice siempre,
+debajo de la cabecera.
+
+```
+MOTOR simulado · FOTOS locales · ENTREGA sin fichero · ACCESO abierto
+```
+
+| Lectura | En latón significa | Se arregla en |
+| --- | --- | --- |
+| `MOTOR` | No se renderiza nada de verdad | Paso 3 |
+| `FOTOS` | El motor no podrá descargarlas y fallarán todos los clips | Paso 2 |
+| `ENTREGA` | No habrá fichero descargable | Paso 4 |
+| `ACCESO` | Cualquiera con la URL puede gastar tus créditos | Paso 5 |
+
+**Todo en gris = listo para renderizar de verdad.** Cuando lo esté, empieza con
+dos o tres fotos: la primera tanda real es para comprobar el circuito, no para
+hacer un vídeo.
+
+### Si algo falla
+
+El error de cada plano sale junto a su miniatura, y son accionables a
+propósito. El más común, con diferencia:
+
+> Higgsfield descarga las fotos él mismo y solo acepta HTTPS público…
+
+es el paso 2 sin hacer.
+
+⚠️ **Al reiniciar el servidor se pierden la autorización de Higgsfield y los
+lotes en curso**: viven en memoria. Es la misma limitación que la persistencia
+pendiente — ver los avisos de producción al final.
 
 ## Motores de vídeo
 
@@ -56,7 +165,7 @@ la interfaz tiene que pedir.
 | Plugin | Cómo | Para |
 | --- | --- | --- |
 | **Higgsfield · API** | REST con una clave | La vía directa. Funciona en cualquier host. |
-| **Higgsfield · MCP** | Servidor MCP, remoto o local | Si ya lo tienes conectado y no quieres emitir otra clave. |
+| **Higgsfield · MCP** | Servidor MCP, remoto o local | Sin clave: entras con tu cuenta en el navegador, una vez. |
 | **Línea de comandos** | Cualquier binario con contrato `create`/`status` | Envolver el CLI de un proveedor, o un script propio. |
 | *(ninguno)* | Simulado | Por defecto. No renderiza ni gasta. |
 
@@ -64,6 +173,15 @@ El panel de Ajustes se dibuja solo a partir de los campos que declara cada
 plugin, así que añadir un motor es un módulo y una línea en
 [`providers/plugins.ts`](src/lib/providers/plugins.ts) — ningún componente
 cambia.
+
+Todo lo que escribas ahí se guarda en el servidor y **nada sensible vuelve al
+navegador**: un campo declarado secreto sale enmascarado (`····1234`), y el
+panel sabe que una máscara no es un valor y no la reenvía.
+
+Se pierde al reiniciar. Para que persista, ponlo en el entorno
+(`cp .env.example .env.local`) — y ten en cuenta que **una clave en el entorno
+manda sobre el panel**, que la muestra bloqueada. Si no fuera así, cualquiera
+que llegase a Ajustes podría desviar el gasto a otra cuenta.
 
 **MCP** ([`lib/mcp/client.ts`](src/lib/mcp/client.ts)) es un cliente JSON-RPC
 mínimo, sin dependencias. La secuencia la fija el propio servidor: importar la
@@ -205,7 +323,7 @@ Tres decisiones que no son negociables:
 Con un modelo local, **las fotos no salen de tu máquina** — que en interiores de
 viviendas habitadas es un argumento de venta, no un detalle técnico.
 
-## Flujo
+## Qué pasa por dentro
 
 1. El usuario arrastra las fotos ([`PhotoDropzone`](src/components/PhotoDropzone.tsx)),
    las ordena arrastrándolas y corrige qué es cada una. **Ese orden es el del
