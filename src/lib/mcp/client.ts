@@ -36,6 +36,21 @@ export interface McpHttpConfig {
   kind: "http";
   url: string;
   headers?: Record<string, string>;
+  /**
+   * Asked before every request for the bearer value.
+   *
+   * A function rather than a header because an OAuth access token expires
+   * mid-batch: a value captured when the client was built would be stale by
+   * the tenth clip. The client stays ignorant of what OAuth is.
+   */
+  authorize?: () => Promise<string | undefined>;
+  /**
+   * Called once after a 401. Return true to retry the same request.
+   *
+   * Clocks drift and sessions get revoked, so a rejection is worth one silent
+   * renewal before it becomes the operator's problem.
+   */
+  reauthorize?: () => Promise<boolean>;
 }
 
 export type McpConfig = McpStdioConfig | McpHttpConfig;
@@ -311,11 +326,17 @@ export class McpClient {
     return body?.result;
   }
 
-  private async post(message: Record<string, unknown>): Promise<{
+  private async post(
+    message: Record<string, unknown>,
+    retried = false
+  ): Promise<{
     result?: unknown;
     error?: { code?: number; message?: string };
   } | null> {
-    const { url, headers = {} } = this.config as McpHttpConfig;
+    const config = this.config as McpHttpConfig;
+    const { url, headers = {} } = config;
+
+    const bearer = await config.authorize?.();
 
     const response = await fetch(url, {
       method: "POST",
@@ -323,6 +344,7 @@ export class McpClient {
         "Content-Type": "application/json",
         // Streamable HTTP lets the server answer either way, so we accept both.
         Accept: "application/json, text/event-stream",
+        ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
         ...(this.sessionId ? { "Mcp-Session-Id": this.sessionId } : {}),
         ...headers,
       },
@@ -333,6 +355,11 @@ export class McpClient {
     // Handed out at initialize and required on every later call.
     const session = response.headers.get("mcp-session-id");
     if (session) this.sessionId = session;
+
+    // One renewal, once. A second 401 after a fresh token is a real refusal.
+    if (response.status === 401 && !retried && config.reauthorize) {
+      if (await config.reauthorize()) return this.post(message, true);
+    }
 
     if (!response.ok) {
       const detail = await response.text().catch(() => "");

@@ -7,6 +7,7 @@ import type {
 import type { PluginConfig, ProviderPlugin } from "@/types/plugin";
 import type { ProviderVerification } from "@/types/settings";
 import { McpClient, McpError, commandsAllowed, type McpConfig } from "@/lib/mcp/client";
+import { getAccessToken, isConnected, renew } from "@/lib/mcp/connection";
 import { ProviderError } from "@/lib/providers/errors";
 import { splitArgs } from "@/lib/providers/args";
 import { normalizeStatus } from "@/lib/providers/status";
@@ -70,20 +71,24 @@ function transportFor(config: PluginConfig): McpConfig {
     );
   }
 
-  const token = config.token?.trim();
-
   return {
     kind: "http",
     url,
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    // Fetched per request rather than captured: an OAuth access token expires
+    // mid-batch, and a value read when the client was built would be stale by
+    // the tenth clip.
+    authorize: () => getAccessToken(url),
+    // One silent renewal before a rejection becomes the operator's problem.
+    reauthorize: async () => Boolean(await renew(url)),
   };
 }
 
 function clientFor(config: PluginConfig): McpClient {
   const transport = transportFor(config);
-  // Keyed by the transport itself, so changing the URL or the token in the
-  // settings panel opens a new connection instead of reusing the old session.
-  const key = JSON.stringify(transport);
+  // Keyed by the values rather than the transport object, which now carries
+  // functions and cannot be serialised. Changing the URL or the command still
+  // opens a new connection instead of reusing the old session.
+  const key = `${config.url ?? ""}|${config.command ?? ""}|${config.args ?? ""}`;
 
   let client = clients.get(key);
   if (!client) {
@@ -209,6 +214,9 @@ function createProvider(config: PluginConfig): VideoProvider {
     name: "higgsfield-mcp",
 
     async verifyCredentials(): Promise<ProviderVerification> {
+      const url = config.url?.trim();
+      const remote = Boolean(url) && !config.command?.trim();
+
       try {
         const tools = await clientFor(config).listTools();
 
@@ -233,6 +241,28 @@ function createProvider(config: PluginConfig): VideoProvider {
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : "Error desconocido";
+
+        // A rejection from a remote server is not a bad configuration: it is
+        // an authorisation that has not happened yet. Telling the operator to
+        // press the button beats handing them a 401.
+        if (remote && (err instanceof McpError ? err.code === 401 : false)) {
+          return {
+            ok: true,
+            verified: false,
+            message:
+              "El servidor responde y pide autorización. Pulsa «Autorizar en " +
+              "Higgsfield»: usa OAuth, no una clave.",
+          };
+        }
+
+        if (remote && !isConnected(url!)) {
+          return {
+            ok: true,
+            verified: false,
+            message: `Guardado, pero aún sin autorizar (${message}).`,
+          };
+        }
+
         return { ok: false, verified: true, message: `No se pudo conectar: ${message}` };
       }
     },
@@ -339,15 +369,9 @@ export const higgsfieldMcpPlugin: ProviderPlugin = {
     {
       name: "url",
       label: "URL del servidor MCP",
-      hint: "La de tu cuenta o conector. Déjala vacía solo si usas un servidor local.",
+      hint: "Se autoriza con OAuth desde el botón, no con una clave pegada aquí.",
       kind: "url",
-      placeholder: "https://…/mcp",
-    },
-    {
-      name: "token",
-      label: "Token",
-      hint: "Se envía como Authorization: Bearer.",
-      kind: "secret",
+      placeholder: "https://mcp.higgsfield.ai/mcp",
     },
     {
       name: "command",

@@ -31,6 +31,10 @@ let failWith: { code: number; message: string } | null = null;
 let useEventStream = false;
 /** Tools the server admits to having. */
 let toolNames = ["media_import_url", "generate_video", "job_status"];
+/** When set, the server rejects anything without this exact bearer. */
+let requiredBearer: string | null = null;
+/** Bearers the server has been shown, in order. */
+const seenBearers: (string | null)[] = [];
 
 let server: Server | undefined;
 let url = "";
@@ -42,6 +46,16 @@ beforeAll(async () => {
 
     req.on("end", () => {
       const message = JSON.parse(body || "{}");
+
+      if (requiredBearer) {
+        const auth = req.headers.authorization ?? null;
+        seenBearers.push(auth);
+        if (auth !== `Bearer ${requiredBearer}`) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "unauthorized" }));
+          return;
+        }
+      }
 
       // A notification carries no id and expects no answer.
       if (message.id === undefined) {
@@ -138,6 +152,8 @@ afterAll(() => {
 
 function reset() {
   calls.length = 0;
+  requiredBearer = null;
+  seenBearers.length = 0;
   jobPayload = { status: "queued" };
   failWith = null;
   useEventStream = false;
@@ -270,6 +286,18 @@ describe("higgsfield-mcp plugin", () => {
     ).rejects.toMatchObject({ kind: "rate_limited" });
   });
 
+  it("tells the operator to authorise when the server rejects us", async () => {
+    // A 401 from a remote server means the browser step has not happened, not
+    // that the configuration is wrong.
+    reset();
+    requiredBearer = "algo-que-no-tenemos";
+
+    const verification = await provider().verifyCredentials!();
+
+    expect(verification).toMatchObject({ ok: true, verified: false });
+    expect(verification.message).toContain("Autorizar");
+  });
+
   it("refuses to connect to a server that cannot render", async () => {
     reset();
     toolNames = ["media_import_url"];
@@ -295,5 +323,48 @@ describe("higgsfield-mcp plugin", () => {
     await expect(
       bare.createClipJob({ imageUrl: "https://example.test/a.jpg", resolved })
     ).rejects.toBeInstanceOf(ProviderError);
+  });
+});
+
+describe("expiring credentials", () => {
+  it("renews once on a 401 and finishes the call", async () => {
+    // The whole point of the refresh path: a token that expires in the middle
+    // of a batch must cost a round trip, not a failed clip.
+    reset();
+    requiredBearer = "nuevo";
+
+    let handed = "viejo";
+    const client = new McpClient({
+      kind: "http",
+      url,
+      authorize: async () => handed,
+      reauthorize: async () => {
+        handed = "nuevo";
+        return true;
+      },
+    });
+
+    expect(await client.listTools()).toContain("generate_video");
+    expect(seenBearers[0]).toBe("Bearer viejo");
+    expect(seenBearers.some((b) => b === "Bearer nuevo")).toBe(true);
+
+    client.close();
+  });
+
+  it("gives up after one renewal rather than looping", async () => {
+    reset();
+    requiredBearer = "inalcanzable";
+
+    const client = new McpClient({
+      kind: "http",
+      url,
+      authorize: async () => "viejo",
+      // Claims to have renewed, but hands back the same rejected token.
+      reauthorize: async () => true,
+    });
+
+    await expect(client.listTools()).rejects.toMatchObject({ code: 401 });
+
+    client.close();
   });
 });

@@ -47,6 +47,14 @@ export interface ProviderConnection {
   verified: boolean;
   /** True when the value comes from the environment and the UI cannot change it. */
   locked: boolean;
+  /**
+   * True when this engine is reached through a browser authorisation rather
+   * than a pasted credential, so the panel has to offer the button instead of
+   * a field.
+   */
+  needsAuthorization?: boolean;
+  /** True once that authorisation is in place and a token is held. */
+  authorized?: boolean;
 }
 
 /** Result of checking credentials against the provider. */

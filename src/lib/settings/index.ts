@@ -8,6 +8,7 @@ import type {
 import type { PluginConfig } from "@/types/plugin";
 import type { VisionSettings } from "@/types/vision";
 import { getPlugin, secretFields, toPublicPlugins } from "@/lib/providers/plugins";
+import { isConnected } from "@/lib/mcp/connection";
 
 /**
  * Runtime settings store.
@@ -179,6 +180,13 @@ export function describeConnection(providerName: string): ProviderConnection {
     values[name] = value;
   }
 
+  // A remote MCP server is authorised in a browser, not configured with a
+  // pasted value, so "connected" alone would overstate what is in place.
+  const remoteMcp =
+    plugin?.id === "higgsfield-mcp" &&
+    Boolean(selection.config.url) &&
+    !selection.config.command;
+
   return {
     provider: providerName,
     pluginId: plugin?.id,
@@ -188,6 +196,8 @@ export function describeConnection(providerName: string): ProviderConnection {
     source: selection.source,
     values,
     keyHint,
+    needsAuthorization: remoteMcp,
+    authorized: remoteMcp ? isConnected(selection.config.url) : undefined,
     verified: selection.source === "env" ? true : settings.engine.verified,
     verifiedAt: settings.engine.verifiedAt,
     locked: selection.locked,

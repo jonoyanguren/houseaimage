@@ -122,12 +122,29 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
               </p>
             )}
 
-            {connection.connected && !connection.verified && (
+            {connection.needsAuthorization && !connection.authorized && (
               <p className="mt-3 text-small leading-relaxed text-muted">
-                La configuración está guardada pero no se ha podido comprobar.
-                Revísala si los clips empiezan a fallar.
+                Este servidor usa OAuth: no hay ninguna clave que pegar. Pulsa
+                «Autorizar» y entra con tu cuenta de Higgsfield. La sesión se
+                guarda en el servidor y se renueva sola.
               </p>
             )}
+
+            {connection.authorized && (
+              <p className="mt-3 text-small leading-relaxed text-positive">
+                Autorizado. El acceso se renueva solo mientras el servidor siga
+                en marcha.
+              </p>
+            )}
+
+            {connection.connected &&
+              !connection.verified &&
+              !connection.needsAuthorization && (
+                <p className="mt-3 text-small leading-relaxed text-muted">
+                  La configuración está guardada pero no se ha podido comprobar.
+                  Revísala si los clips empiezan a fallar.
+                </p>
+              )}
 
             {connection.locked ? (
               <p className="mt-3 text-small leading-relaxed text-faint">
@@ -187,6 +204,21 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                       >
                         {busy ? "Comprobando" : "Conectar"}
                       </button>
+
+                      {connection.needsAuthorization && (
+                        /*
+                          A link, not a fetch: OAuth needs the browser to make
+                          the journey itself and come back with the code.
+                        */
+                        <a
+                          href="/api/settings/provider/authorize"
+                          className="text-small text-accent underline decoration-accent-line underline-offset-[6px] transition-colors hover:decoration-accent"
+                        >
+                          {connection.authorized
+                            ? "Volver a autorizar"
+                            : "Autorizar en Higgsfield"}
+                        </a>
+                      )}
 
                       {connection.connected && (
                         <button

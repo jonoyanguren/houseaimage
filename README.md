@@ -71,6 +71,32 @@ foto (`media_import_url`), lanzar el trabajo (`generate_video`) y sondearlo
 (`job_status`). Ojo: la importación exige **HTTPS**, así que las fotos tienen
 que ser públicas de verdad.
 
+### El MCP de Higgsfield no se conecta con una clave
+
+Responde `401` con `WWW-Authenticate: Bearer`, así que **no hay ningún token que
+pegar**: se autoriza en el navegador, una vez. En Ajustes guardas la URL y
+pulsas «Autorizar en Higgsfield».
+
+Lo que hace [`lib/mcp/oauth.ts`](src/lib/mcp/oauth.ts) por debajo, todo estándar
+y sin nada codificado a mano para Higgsfield:
+
+1. **Descubre** los endpoints desde la URL del MCP.
+2. **Se registra solo** como cliente OAuth (registro dinámico), así que nadie
+   tiene que dar de alta un `client_id` a mano.
+3. **PKCE** — cliente público, sin secreto que custodiar. El verificador no sale
+   nunca del servidor; por el navegador solo viaja su hash.
+4. **`offline_access`** — un token de refresco, que es lo que permite que la
+   plataforma siga renderizando de madrugada sin nadie delante. Se renueva sola,
+   y también ante un `401` inesperado.
+
+Se puede probar **desde `localhost`**: la redirección la hace tu navegador, no
+el servidor de Higgsfield. Detrás de un túnel o en producción, pon `APP_URL`
+para que la URL de retorno sea la pública.
+
+⚠️ La autorización vive **en memoria**, como los lotes: al reiniciar hay que
+volver a pulsar el botón. Que sobreviva exige cifrar el token de refresco en
+reposo, y esa decisión va con la de añadir base de datos.
+
 **Línea de comandos** es un puente genérico, no el CLI de nadie en concreto —
 los flags de cada proveedor cambian y atarse a unos sería una apuesta con fecha
 de caducidad:
