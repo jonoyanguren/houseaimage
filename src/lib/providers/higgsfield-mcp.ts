@@ -177,6 +177,49 @@ const STATUS_KEYS = ["status", "state", "job_status"] as const;
 const VIDEO_KEYS = ["video_url", "videoUrl", "url", "output_url", "result_url"] as const;
 const PROGRESS_KEYS = ["progress", "percent", "percentage"] as const;
 
+/**
+ * Classify what a tool complained about.
+ *
+ * A tool error is not a transport error: the call arrived, the server
+ * understood it and refused. Some of those refusals are permanent, and
+ * treating them as transient burns the retry budget — and the customer's
+ * money — on work that cannot succeed.
+ *
+ * The HTTPS case earns its own message because it is the one everybody hits:
+ * the photos are served from `localhost` in development, and the provider
+ * downloads them itself. The raw wording tells you what is wrong; this tells
+ * you what to do.
+ */
+function classifyToolError(tool: string, detail: string): ProviderError {
+  const text = detail.toLowerCase();
+
+  if (text.includes("https")) {
+    return new ProviderError(
+      "invalid_input",
+      "Higgsfield descarga las fotos él mismo y solo acepta HTTPS público. " +
+        "Ahora se sirven desde una dirección local, que él no puede alcanzar: " +
+        "publica la aplicación o levanta un túnel y pon APP_URL con esa URL."
+    );
+  }
+
+  if (text.includes("rate limit") || text.includes("too many")) {
+    return new ProviderError("rate_limited", `${tool}: ${detail}`);
+  }
+
+  // Anything the tool calls invalid, unsupported or unknown is about *this*
+  // input and will be just as invalid on the second attempt.
+  if (
+    text.includes("invalid") ||
+    text.includes("unsupported") ||
+    text.includes("not allowed") ||
+    text.includes("must be")
+  ) {
+    return new ProviderError("invalid_input", `${tool}: ${detail}`);
+  }
+
+  return new ProviderError("provider_error", `${tool}: ${detail}`);
+}
+
 /** Turn anything the client throws into a classified provider failure. */
 function asProviderError(err: unknown): ProviderError {
   if (err instanceof ProviderError) return err;
@@ -201,9 +244,9 @@ function createProvider(config: PluginConfig): VideoProvider {
     const result = await clientFor(config).callTool(tool, args);
 
     if (result.isError) {
-      throw new ProviderError(
-        "provider_error",
-        `${tool}: ${result.text.slice(0, 300) || "el servidor MCP devolvió un error"}`
+      throw classifyToolError(
+        tool,
+        result.text.slice(0, 300) || "el servidor MCP devolvió un error"
       );
     }
 

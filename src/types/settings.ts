@@ -107,6 +107,16 @@ export interface PublicSettings {
   /** True when an access code is configured, so the UI can say so. */
   accessGate: boolean;
   /**
+   * Whether the photographs will be reachable by the engine that renders them.
+   *
+   * Every real backend downloads the images itself, over public HTTPS, so a
+   * development server handing out `http://localhost/uploads/…` produces a
+   * batch where every single clip fails on the first call. Surfaced next to
+   * the engine because it is the same class of fact: something that decides
+   * whether a render can work at all, and that is invisible until you pay.
+   */
+  photosReachable: boolean;
+  /**
    * Whether this host can assemble the downloadable file.
    *
    * Surfaced because it changes what the customer walks away with: without a

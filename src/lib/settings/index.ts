@@ -254,8 +254,15 @@ export async function toPublicSettings(
 ): Promise<PublicSettings> {
   const { getStitchProvider } = await import("@/lib/stitch");
 
+  const connection = describeConnection(providerName);
+  // The simulated engine downloads nothing, so a local address is fine there.
+  // A real one fetches every photo over public HTTPS or fails on all of them.
+  const appUrl = process.env.APP_URL?.trim() ?? "";
+  const photosReachable = !connection.connected || appUrl.startsWith("https://");
+
   return {
-    connection: describeConnection(providerName),
+    connection,
+    photosReachable,
     plugins: toPublicPlugins(),
     brand: getBrand(),
     vision: getVision(),

@@ -31,6 +31,8 @@ let failWith: { code: number; message: string } | null = null;
 let useEventStream = false;
 /** Tools the server admits to having. */
 let toolNames = ["media_import_url", "generate_video", "job_status"];
+/** When set, every tool answers with an error result carrying this text. */
+let toolError: string | null = null;
 /** When set, the server rejects anything without this exact bearer. */
 let requiredBearer: string | null = null;
 /** Bearers the server has been shown, in order. */
@@ -112,6 +114,11 @@ beforeAll(async () => {
           return;
         }
 
+        if (toolError) {
+          reply({ content: [{ type: "text", text: toolError }], isError: true });
+          return;
+        }
+
         if (name === "media_import_url") {
           // Nested on purpose: servers wrap their answers differently and the
           // plugin has to find the value wherever it is.
@@ -152,6 +159,7 @@ afterAll(() => {
 
 function reset() {
   calls.length = 0;
+  toolError = null;
   requiredBearer = null;
   seenBearers.length = 0;
   jobPayload = { status: "queued" };
@@ -366,5 +374,43 @@ describe("expiring credentials", () => {
     await expect(client.listTools()).rejects.toMatchObject({ code: 401 });
 
     client.close();
+  });
+});
+
+describe("what a tool refuses", () => {
+  it("calls an HTTPS refusal permanent, and says what to do about it", async () => {
+    // The one everybody hits: photos served from localhost, which the provider
+    // downloads itself and cannot reach. Retrying it can never work, so the
+    // engine must not spend attempts — or the customer's money — on it.
+    reset();
+    toolError = "Error: media_import_url only accepts https:// URLs";
+
+    await expect(
+      provider().createClipJob({ imageUrl: "http://localhost:3000/a.jpg", resolved })
+    ).rejects.toMatchObject({ kind: "invalid_input" });
+
+    const failure = await provider()
+      .createClipJob({ imageUrl: "http://localhost:3000/a.jpg", resolved })
+      .catch((err: Error) => err.message);
+
+    expect(failure).toContain("APP_URL");
+  });
+
+  it("keeps a rate limit transient, with its own backoff", async () => {
+    reset();
+    toolError = "Rate limit exceeded, try again later";
+
+    await expect(
+      provider().createClipJob({ imageUrl: "https://example.test/a.jpg", resolved })
+    ).rejects.toMatchObject({ kind: "rate_limited" });
+  });
+
+  it("treats an unrecognised refusal as transient, because giving up costs more", async () => {
+    reset();
+    toolError = "Something went sideways on our end";
+
+    await expect(
+      provider().createClipJob({ imageUrl: "https://example.test/a.jpg", resolved })
+    ).rejects.toMatchObject({ kind: "provider_error" });
   });
 });

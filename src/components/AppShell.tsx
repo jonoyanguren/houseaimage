@@ -100,7 +100,7 @@ function Shell({ children }: { children: ReactNode }) {
  */
 function StatusStrip() {
   const { settings } = useSettingsContext();
-  const { connection, accessGate, canDeliverFile } = settings;
+  const { connection, accessGate, canDeliverFile, photosReachable } = settings;
 
   return (
     <div className="border-t border-line-faint bg-surface/40">
@@ -113,6 +113,16 @@ function StatusStrip() {
             connection.connected
               ? "Los clips se renderizan de verdad y consumen créditos."
               : "Sin clave de API: los clips se simulan y no se renderiza nada."
+          }
+        />
+        <Reading
+          label="Fotos"
+          value={photosReachable ? "públicas" : "locales"}
+          tone={photosReachable ? "normal" : "warn"}
+          title={
+            photosReachable
+              ? "El motor podrá descargar las fotografías para renderizarlas."
+              : "El motor descarga las fotos él mismo por HTTPS público y ahora se sirven desde una dirección local: todos los clips fallarían. Publica la aplicación o levanta un túnel y pon APP_URL."
           }
         />
         <Reading
