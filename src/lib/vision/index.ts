@@ -1,6 +1,7 @@
 import type { PhotoAnalyzer, VisionSettings } from "@/types/vision";
 import { heuristicAnalyzer } from "@/lib/vision/heuristic";
 import { createOllamaAnalyzer } from "@/lib/vision/ollama";
+import { createOpenAiAnalyzer } from "@/lib/vision/openai";
 
 export { listModels, warmUp, __resetModelCache } from "@/lib/vision/ollama";
 export { heuristicAnalyzer } from "@/lib/vision/heuristic";
@@ -21,6 +22,14 @@ export function getAnalyzer(settings: VisionSettings): PhotoAnalyzer {
     return createOllamaAnalyzer({
       baseUrl: settings.baseUrl,
       model: settings.model,
+    });
+  }
+
+  if (settings.driver === "openai") {
+    return createOpenAiAnalyzer({
+      baseUrl: settings.baseUrl,
+      model: settings.model,
+      apiKey: settings.apiKey,
     });
   }
 

@@ -3,7 +3,7 @@ import type {
   PluginTransport,
   PublicPlugin,
 } from "@/types/plugin";
-import type { VisionSettings } from "@/types/vision";
+import type { PublicVisionSettings, VisionSettings } from "@/types/vision";
 
 /**
  * Runtime settings: the things an operator configures from the interface
@@ -102,8 +102,8 @@ export interface PublicSettings {
   /** Every engine that can be connected, with the fields each one needs. */
   plugins: PublicPlugin[];
   brand: BrandSettings;
-  /** The photo classifier in effect. Nothing here is secret for a local model. */
-  vision: VisionSettings;
+  /** The photo classifier in effect, with any key reduced to a hint. */
+  vision: PublicVisionSettings;
   /** True when an access code is configured, so the UI can say so. */
   accessGate: boolean;
   /**

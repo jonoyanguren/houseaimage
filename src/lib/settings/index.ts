@@ -6,7 +6,7 @@ import type {
   SettingsSource,
 } from "@/types/settings";
 import type { PluginConfig } from "@/types/plugin";
-import type { VisionSettings } from "@/types/vision";
+import type { PublicVisionSettings, VisionSettings } from "@/types/vision";
 import { getPlugin, secretFields, toPublicPlugins } from "@/lib/providers/plugins";
 import { isConnected } from "@/lib/mcp/connection";
 
@@ -40,10 +40,22 @@ const DEFAULT_BRAND: BrandSettings = { endCard: false, watermark: false };
  * and the heuristic works with nothing at all. The environment can preselect
  * it for a host that always has one.
  */
+function envDriver(): VisionSettings["driver"] {
+  const raw = process.env.VISION_DRIVER?.trim();
+  return raw === "ollama" || raw === "openai" ? raw : "heuristic";
+}
+
 const DEFAULT_VISION: VisionSettings = {
-  driver: process.env.VISION_DRIVER?.trim() === "ollama" ? "ollama" : "heuristic",
-  baseUrl: process.env.OLLAMA_BASE_URL?.trim() || undefined,
-  model: process.env.OLLAMA_VISION_MODEL?.trim() || undefined,
+  driver: envDriver(),
+  baseUrl:
+    process.env.VISION_BASE_URL?.trim() ||
+    process.env.OLLAMA_BASE_URL?.trim() ||
+    undefined,
+  model:
+    process.env.VISION_MODEL?.trim() ||
+    process.env.OLLAMA_VISION_MODEL?.trim() ||
+    undefined,
+  apiKey: process.env.VISION_API_KEY?.trim() || undefined,
 };
 
 const settings: RuntimeSettings = (globalForSettings.__houseaimageSettings ??= {
@@ -220,8 +232,21 @@ export function setVision(patch: Partial<VisionSettings>): VisionSettings {
     driver: patch.driver ?? settings.vision.driver,
     baseUrl: (patch.baseUrl ?? settings.vision.baseUrl)?.trim() || undefined,
     model: (patch.model ?? settings.vision.model)?.trim() || undefined,
+    // A blank key means "leave it": the panel cannot resend a value it never
+    // received, and clearing it is what switching driver is for.
+    apiKey: patch.apiKey?.trim() || settings.vision.apiKey,
   };
   return getVision();
+}
+
+/** The classifier as the browser may see it. The key becomes four characters. */
+export function toPublicVision(): PublicVisionSettings {
+  const { apiKey, ...rest } = settings.vision;
+
+  return {
+    ...rest,
+    keyHint: apiKey ? apiKey.slice(-4) : undefined,
+  };
 }
 
 export function getBrand(): BrandSettings {
@@ -291,7 +316,7 @@ export async function toPublicSettings(
     photosReachable,
     plugins: toPublicPlugins(),
     brand: getBrand(),
-    vision: getVision(),
+    vision: toPublicVision(),
     accessGate: hasAccessGate(),
     canDeliverFile: (await getStitchProvider()) !== null,
   };

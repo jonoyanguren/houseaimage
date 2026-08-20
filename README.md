@@ -321,7 +321,14 @@ tanto como el estilo. Hay dos formas de decidirla, en
 | Driver | Cómo | Qué consigue |
 | --- | --- | --- |
 | `heuristic` *(por defecto)* | Nombre de fichero, y posición si el nombre no dice nada | Acierta con `salon-2.jpg`, se rinde con `IMG_2481.jpg` |
-| `ollama` | Un modelo local **mira** la fotografía | Clasifica todas, y avisa de lo que no conviene animar |
+| `ollama` | Un modelo local **mira** la fotografía | Gratis por foto y las imágenes no salen de tu máquina — a cambio de atar el servidor a una GPU |
+| `openai` | Un modelo alojado, por *chat completions* | Lo mismo sin GPU: DeepSeek, Groq, OpenRouter, Gemini… Es el que sobrevive a desplegar |
+
+Un anuncio de 10 fotos son **~8.000 tokens de entrada y ~200 de salida**: céntimos
+en cualquier proveedor, contra los dólares que cuesta el vídeo. Por eso el
+driver alojado es **un solo módulo para una docena de proveedores** — todos
+hablan el mismo dialecto, así que el precio es un ajuste y no una decisión de
+arquitectura. Cuando uno baje, se cambia en un desplegable.
 
 Lo segundo es lo que enciende el catálogo de escenas entero, y además detecta
 lo que hay que descartar **antes** de pagarlo: el plano de planta que toda

@@ -62,14 +62,34 @@ export interface PhotoAnalyzer {
   analyze(photo: AnalyzablePhoto): Promise<PhotoAnalysis>;
 }
 
-/** What the operator configures. Nothing here is secret for a local model. */
+/**
+ * What the operator configures.
+ *
+ * `apiKey` is the only field here that must never leave the server, which is
+ * why there is a public shape below rather than this one going to the browser.
+ */
 export interface VisionSettings {
-  driver: "heuristic" | "ollama";
-  /** Where the local server listens. */
+  /**
+   * - `heuristic` — the filename. Free, instant, and blind.
+   * - `ollama` — a local model. Free per photo and the images never leave the
+   *   building, at the price of a machine with a GPU.
+   * - `openai` — anything speaking OpenAI chat completions. The one that
+   *   survives leaving a machine of your own behind.
+   */
+  driver: "heuristic" | "ollama" | "openai";
+  /** Where the server listens. Its default depends on the driver. */
   baseUrl?: string;
   /** Which model to ask. It has to be one that can actually see. */
   model?: string;
+  /** Server-only. Hosted backends need it; a local one does not. */
+  apiKey?: string;
 }
+
+/** The classifier as the browser may see it: the key becomes a hint. */
+export type PublicVisionSettings = Omit<VisionSettings, "apiKey"> & {
+  /** Last four characters, enough to tell two keys apart and useless to steal. */
+  keyHint?: string;
+};
 
 /** A model the local server has, and whether it is any use to us. */
 export interface VisionModel {

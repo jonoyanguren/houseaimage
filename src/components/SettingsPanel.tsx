@@ -447,6 +447,7 @@ function VisionSection() {
   const [driver, setDriver] = useState(settings.vision.driver);
   const [baseUrl, setBaseUrl] = useState(settings.vision.baseUrl ?? "");
   const [model, setModel] = useState(settings.vision.model ?? "");
+  const [apiKey, setApiKey] = useState("");
   const [models, setModels] = useState<VisionModel[] | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [looking, setLooking] = useState(false);
@@ -476,9 +477,15 @@ function VisionSection() {
         />
         <DriverOption
           label="Modelo local (Ollama)"
-          hint="Mira la fotografía. Clasifica todas y avisa de planos de planta o fotos borrosas. Las imágenes no salen de tu máquina."
+          hint="Mira la fotografía y las imágenes no salen de tu máquina. Gratis por foto, pero ata el servidor a una tarjeta gráfica."
           selected={driver === "ollama"}
           onSelect={() => setDriver("ollama")}
+        />
+        <DriverOption
+          label="Modelo alojado (compatible con OpenAI)"
+          hint="Mira la fotografía sin necesitar GPU: DeepSeek, Groq, OpenRouter, Gemini… Es el que sobrevive al desplegar. Céntimos por anuncio."
+          selected={driver === "openai"}
+          onSelect={() => setDriver("openai")}
         />
       </div>
 
@@ -547,10 +554,60 @@ function VisionSection() {
         </div>
       )}
 
+      {driver === "openai" && (
+        <div className="mt-5 flex flex-col gap-4 border-t border-line-faint pt-5">
+          <Field
+            label="URL base"
+            hint="La del proveedor. Vacío para la de OpenAI."
+          >
+            <input
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://api.deepseek.com/v1"
+              spellCheck={false}
+              className="numeric w-full rounded-sm border border-line bg-surface-sunken px-3.5 py-2.5 text-small outline-none transition-colors placeholder:text-faint focus:border-line-strong"
+            />
+          </Field>
+
+          <Field label="Modelo" hint="Tiene que ser uno con visión.">
+            <input
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="gpt-4o-mini"
+              spellCheck={false}
+              className="numeric w-full rounded-sm border border-line bg-surface-sunken px-3.5 py-2.5 text-small outline-none transition-colors placeholder:text-faint focus:border-line-strong"
+            />
+          </Field>
+
+          <Field
+            label="Clave de API"
+            hint={
+              settings.vision.keyHint
+                ? `Guardada (····${settings.vision.keyHint}). Déjalo vacío para no cambiarla.`
+                : "Se guarda en el servidor y no vuelve al navegador."
+            }
+          >
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="sk-···"
+              autoComplete="off"
+              spellCheck={false}
+              className="numeric w-full rounded-sm border border-line bg-surface-sunken px-3.5 py-2.5 text-small outline-none transition-colors placeholder:text-faint focus:border-line-strong"
+            />
+          </Field>
+        </div>
+      )}
+
       <button
         type="button"
-        disabled={busy || (driver === "ollama" && !model)}
-        onClick={() => saveVision({ driver, baseUrl, model })}
+        disabled={
+          busy ||
+          (driver === "ollama" && !model) ||
+          (driver === "openai" && (!model || (!apiKey && !settings.vision.keyHint)))
+        }
+        onClick={() => saveVision({ driver, baseUrl, model, apiKey })}
         className="mt-5 w-fit rounded-sm bg-accent px-6 py-2.5 text-micro font-semibold uppercase tracking-[0.2em] text-accent-ink transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-25"
       >
         Guardar

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { setVision } from "@/lib/settings";
+import { setVision, toPublicVision } from "@/lib/settings";
 import { __resetModelCache, listModels, warmUp } from "@/lib/vision";
 import type { VisionSettings } from "@/types/vision";
 
@@ -41,12 +41,15 @@ export async function PATCH(req: Request) {
   }
 
   const driver =
-    patch.driver === "ollama" || patch.driver === "heuristic" ? patch.driver : undefined;
+    patch.driver === "ollama" || patch.driver === "openai" || patch.driver === "heuristic"
+      ? patch.driver
+      : undefined;
 
   const vision = setVision({
     driver,
     baseUrl: typeof patch.baseUrl === "string" ? patch.baseUrl.slice(0, 200) : undefined,
     model: typeof patch.model === "string" ? patch.model.slice(0, 120) : undefined,
+    apiKey: typeof patch.apiKey === "string" ? patch.apiKey.slice(0, 300) : undefined,
   });
 
   // A model may have been pulled again since we last asked what it can do.
@@ -58,5 +61,6 @@ export async function PATCH(req: Request) {
     void warmUp({ baseUrl: vision.baseUrl, model: vision.model });
   }
 
-  return NextResponse.json({ vision });
+  // Never the key back, only its hint.
+  return NextResponse.json({ vision: toPublicVision() });
 }
