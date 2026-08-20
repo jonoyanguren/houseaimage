@@ -21,8 +21,15 @@ import type { StorageProvider, StoredImage } from "@/types/storage";
  * store before deploying there.
  */
 
-/** Outside `public/` on purpose, and outside the repository's tracked files. */
-const UPLOAD_DIR = path.join(process.cwd(), ".uploads");
+/**
+ * Outside `public/` on purpose, and outside the repository's tracked files.
+ *
+ * Overridable so a deployment can point it at a mounted volume — and so the
+ * tests stop dropping one-byte files into the directory a running app is
+ * serving from, which is how they were found.
+ */
+const UPLOAD_DIR =
+  process.env.STORAGE_LOCAL_DIR?.trim() || path.join(process.cwd(), ".uploads");
 
 /** The route that serves them back. Kept here so both halves agree. */
 export const UPLOAD_ROUTE = "/api/uploads";

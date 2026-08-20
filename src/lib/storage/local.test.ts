@@ -1,5 +1,22 @@
-import { describe, expect, it } from "vitest";
-import { UPLOAD_KEY, UPLOAD_ROUTE, localStorageProvider, mimeFor } from "@/lib/storage/local";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
+
+/**
+ * Pointed at a scratch directory before the module is loaded: these tests were
+ * writing real files into the directory a running app serves photographs from.
+ */
+const workDir = await mkdtemp(path.join(tmpdir(), "houseaimage-storage-"));
+process.env.STORAGE_LOCAL_DIR = workDir;
+
+const { UPLOAD_KEY, UPLOAD_ROUTE, localStorageProvider, mimeFor } = await import(
+  "@/lib/storage/local"
+);
+
+afterAll(async () => {
+  await rm(workDir, { recursive: true, force: true }).catch(() => {});
+});
 
 /**
  * Storage keys, and the pattern that decides what may be read back.

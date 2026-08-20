@@ -52,32 +52,69 @@ const ANALYSIS_CONCURRENCY = 2;
 const THUMBNAIL_EDGE = 640;
 
 /**
- * Shrink a photo for display.
+ * Longest edge of the photograph we upload.
  *
- * The originals are 4-15 MB each and there can be twenty of them. Showing them
- * directly meant the browser decoding a hundred megapixels to fill tiles a few
- * hundred pixels wide, which janks the whole page on a laptop and can crash a
- * phone. The `File` itself is untouched — that is what gets uploaded.
+ * The video models render at 720p or 1080p, so a 4000px original is detail
+ * nobody will see, paid for twice — once in the upload and once in the
+ * vendor's storage.
  */
-async function thumbnail(file: File): Promise<string> {
+const UPLOAD_EDGE = 2048;
+
+/**
+ * Prepare a photograph: one decode, two outputs.
+ *
+ * The **upload is re-encoded to JPEG**, and that is not an optimisation — it is
+ * a fix. Phones and portals hand out AVIF, HEIC and WebP, and the video model
+ * accepts the job and then fails to render it, reporting nothing more useful
+ * than "la generación falló en el proveedor". Hours went into looking for that
+ * fault in the transport, the credentials and the model, because every test
+ * here used a JPEG and every real photograph did not.
+ *
+ * The browser already has the decoder, and we already pay for a decode to draw
+ * the grid. So the same bitmap produces both the tile and the file that gets
+ * sent, and every exotic format becomes the one thing every backend reads.
+ */
+async function prepare(file: File): Promise<{ upload: File; previewUrl: string }> {
   try {
     const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, THUMBNAIL_EDGE / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bitmap.width * scale);
-    canvas.height = Math.round(bitmap.height * scale);
 
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("sin contexto 2d");
+    const draw = (edge: number): HTMLCanvasElement => {
+      const scale = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
 
-    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("sin contexto 2d");
+
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      return canvas;
+    };
+
+    const full = draw(UPLOAD_EDGE);
+    const previewUrl = draw(THUMBNAIL_EDGE).toDataURL("image/jpeg", 0.72);
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      full.toBlob(resolve, "image/jpeg", 0.9)
+    );
     bitmap.close();
 
-    return canvas.toDataURL("image/jpeg", 0.72);
+    if (!blob) throw new Error("no se pudo codificar");
+
+    // The name keeps its stem: the classifier reads it when a filename says
+    // which room this is, and losing that would cost every `cocina-2.avif` its
+    // one piece of real evidence.
+    const stem = file.name.replace(/\.[^.]+$/, "") || "foto";
+
+    return {
+      upload: new File([blob], `${stem}.jpg`, { type: "image/jpeg" }),
+      previewUrl,
+    };
   } catch {
-    // HEIC and other formats the canvas cannot decode: fall back to the
-    // original. A heavy preview beats a missing one.
-    return URL.createObjectURL(file);
+    // A format the browser itself cannot decode — HEIC on most desktops. The
+    // original is sent as it came: it may well fail at the provider, but
+    // refusing it here would be worse, and nothing can convert it locally.
+    return { upload: file, previewUrl: URL.createObjectURL(file) };
   }
 }
 
@@ -155,20 +192,24 @@ export function PhotoDropzone({
 
       try {
         newPhotos = await Promise.all(
-          incoming.map(async (file, i) => ({
-            id: crypto.randomUUID(),
-            file,
-            previewUrl: await thumbnail(file),
-            // The filename is real evidence when it carries a room name, and
-            // position is the fallback. Every guess stays editable below the
-            // thumbnail.
-            sceneType: classifyPhoto({
-              fileName: file.name,
-              index: photos.length + i,
-              total,
-              propertyType,
-            }),
-          }))
+          incoming.map(async (file, i) => {
+            const { upload, previewUrl } = await prepare(file);
+
+            return {
+              id: crypto.randomUUID(),
+              file: upload,
+              previewUrl,
+              // The filename is real evidence when it carries a room name, and
+              // position is the fallback. Every guess stays editable below the
+              // thumbnail.
+              sceneType: classifyPhoto({
+                fileName: file.name,
+                index: photos.length + i,
+                total,
+                propertyType,
+              }),
+            };
+          })
         );
 
         onChange([...photos, ...newPhotos]);
