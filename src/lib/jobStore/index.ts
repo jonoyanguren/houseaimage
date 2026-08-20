@@ -1,12 +1,19 @@
 import type { Batch } from "@/types/video";
 import type { BatchStore } from "@/types/store";
 import { memoryBatchStore } from "@/lib/jobStore/memory";
+import { sqliteBatchStore } from "@/lib/jobStore/sqlite";
 
 /**
  * Batch store selection.
  *
  * Resolution mirrors `src/lib/providers` and `src/lib/storage`: an explicit
- * `BATCH_STORE` wins, otherwise in-memory, so a fresh clone runs unconfigured.
+ * `BATCH_STORE` wins, otherwise **SQLite**.
+ *
+ * The default changed, and deliberately. In-memory needed no configuration,
+ * which is why it was the default — but SQLite needs none either, it is built
+ * into Node, and it keeps the reel someone just paid to render. Losing a batch
+ * on reload was never a development detail; it was the product forgetting.
+ * `BATCH_STORE=memory` is still there for a test that wants no file.
  *
  * To add Redis or Postgres, implement `BatchStore` and register it below.
  * Nothing outside this directory knows where batches live.
@@ -14,6 +21,7 @@ import { memoryBatchStore } from "@/lib/jobStore/memory";
 
 const STORES: Record<string, BatchStore> = {
   memory: memoryBatchStore,
+  sqlite: sqliteBatchStore,
 };
 
 export function getBatchStore(): BatchStore {
@@ -29,7 +37,7 @@ export function getBatchStore(): BatchStore {
     return store;
   }
 
-  return memoryBatchStore;
+  return sqliteBatchStore;
 }
 
 export function saveBatch(batch: Batch): Promise<Batch> {

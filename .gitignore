@@ -47,3 +47,6 @@ next-env.d.ts
 # Fotos subidas en desarrollo. Fuera de public/ a propósito: Next captura
 # public/ en el build y no serviría nada escrito después.
 /.uploads
+
+# Base de datos local. Contiene credenciales: protégela como .env.local.
+/.data
