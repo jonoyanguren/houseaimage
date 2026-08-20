@@ -534,7 +534,10 @@ MOCK_FAILURE_RATE=0.4 npm run dev
   instancias, dos sondeos consecutivos pueden caer en procesos distintos y dar
   404. Implementa `BatchStore` sobre Redis/Postgres/KV y regístralo en
   `src/lib/jobStore/index.ts`.
-- **El almacenamiento por defecto escribe en disco local** (`public/uploads`).
+- **El almacenamiento por defecto escribe en disco local** (`.uploads/`, servido
+  por `/api/uploads/[key]`). No va en `public/`: Next captura esa carpeta en el
+  build, así que un fichero escrito después existe en disco y devuelve 404 —
+  funcionaba en desarrollo y fallaba entero al desplegar.
   En serverless implementa `StorageProvider` sobre S3, Cloudinary o Vercel Blob.
   Además el proveedor descarga las URLs él mismo, así que en producción tienen
   que ser públicas de verdad.

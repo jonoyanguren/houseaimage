@@ -4,16 +4,37 @@ import { randomUUID } from "crypto";
 import type { StorageProvider, StoredImage } from "@/types/storage";
 
 /**
- * Local filesystem storage, under `public/uploads` so photos are served at
- * `/uploads/<file>`.
+ * Local filesystem storage, served back through `/api/uploads/<key>`.
  *
- * ⚠️ Only viable where the filesystem is writable and persistent — a VPS or a
- * long-lived container. On serverless targets the disk is read-only or
- * ephemeral, so uploads vanish between requests. Swap `STORAGE_DRIVER` for an
- * object store before deploying there.
+ * It used to write into `public/uploads`, which works in development and
+ * **silently fails in production**: Next captures `public/` at build time, so
+ * a photograph written there afterwards exists on disk and returns 404 over
+ * HTTP. Every clip in a deployed batch failed on a photo the server could see
+ * perfectly well — the kind of fault that only appears once you ship.
+ *
+ * So the files live outside `public/` now and a route hands them out. That
+ * costs one route and removes a whole class of "works on my machine".
+ *
+ * ⚠️ Still only viable where the filesystem is writable and persistent — a VPS
+ * or a long-lived container. On serverless the disk is read-only or ephemeral
+ * and uploads vanish between requests: swap `STORAGE_DRIVER` for an object
+ * store before deploying there.
  */
 
-const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
+/** Outside `public/` on purpose, and outside the repository's tracked files. */
+const UPLOAD_DIR = path.join(process.cwd(), ".uploads");
+
+/** The route that serves them back. Kept here so both halves agree. */
+export const UPLOAD_ROUTE = "/api/uploads";
+
+/**
+ * Keys we are willing to read back: exactly what `save` generates.
+ *
+ * A UUID and a known extension, anchored at both ends. The route validates
+ * against this before touching the disk, so a crafted key cannot walk out of
+ * the directory.
+ */
+export const UPLOAD_KEY = /^[0-9a-f-]{36}\.(jpg|png|webp|avif|heic|svg|mp4|webm)$/i;
 
 /**
  * Derive a file extension from the MIME type rather than the client-supplied
@@ -38,6 +59,26 @@ function extensionFor(mimeType: string): string {
   return "jpg";
 }
 
+/** What to serve a stored key back as. */
+export function mimeFor(key: string): string {
+  const extension = key.split(".").pop()?.toLowerCase();
+
+  if (extension === "png") return "image/png";
+  if (extension === "webp") return "image/webp";
+  if (extension === "avif") return "image/avif";
+  if (extension === "heic") return "image/heic";
+  if (extension === "svg") return "image/svg+xml";
+  if (extension === "mp4") return "video/mp4";
+  if (extension === "webm") return "video/webm";
+
+  return "image/jpeg";
+}
+
+/** Absolute path of a stored key, once the key has been validated. */
+export function pathFor(key: string): string {
+  return path.join(UPLOAD_DIR, key);
+}
+
 export const localStorageProvider: StorageProvider = {
   name: "local",
 
@@ -50,6 +91,6 @@ export const localStorageProvider: StorageProvider = {
 
     await writeFile(path.join(UPLOAD_DIR, key), buffer);
 
-    return { url: `/uploads/${key}`, key };
+    return { url: `${UPLOAD_ROUTE}/${key}`, key };
   },
 };
