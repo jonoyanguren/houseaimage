@@ -42,6 +42,8 @@ let toolNames = [
   "generate_video",
   "job_status",
 ];
+/** Overrides what job_status answers with. */
+let statusPayload: Record<string, unknown> | null = null;
 /** An extra catalogue entry a test can add. */
 let catalogExtra: Record<string, unknown> | null = null;
 /** Bytes the fake storage received on its presigned PUT. */
@@ -233,7 +235,7 @@ beforeAll(async () => {
         }
 
         if (name === "job_status") {
-          reply({ structuredContent: jobPayload });
+          reply({ structuredContent: statusPayload ?? jobPayload });
           return;
         }
 
@@ -257,6 +259,7 @@ afterAll(() => {
 
 function reset() {
   calls.length = 0;
+  statusPayload = null;
   catalogExtra = null;
   uploaded = null;
   uploadedType = null;
@@ -558,6 +561,44 @@ describe("what a tool refuses", () => {
     await expect(
       provider().createClipJob({ imageUrl: photoUrl("a.jpg"), resolved })
     ).rejects.toMatchObject({ kind: "provider_error" });
+  });
+});
+
+describe("finding the finished video", () => {
+  it("takes the result, not the photograph echoed back in params", async () => {
+    // The status response repeats the request, start image included. A blind
+    // search for `url` found that JPEG first, so every clip came back
+    // "completed" pointing at its own source photo: the reel played a
+    // slideshow and the downloadable file would have failed on a still.
+    reset();
+    statusPayload = {
+      generation: {
+        status: "completed",
+        params: {
+          medias: [{ role: "start_image", data: { url: "https://cdn.test/foto.jpg" } }],
+        },
+        results: {
+          rawUrl: "https://cdn.test/clip.mp4",
+          thumbnailUrl: "https://cdn.test/miniatura.jpg",
+        },
+      },
+    };
+
+    const status = await provider().getClipJobStatus("job-7");
+    expect(status.videoUrl).toBe("https://cdn.test/clip.mp4");
+  });
+
+  it("refuses an image even when nothing else is offered", async () => {
+    // A clip with no URL is visibly incomplete. One with the wrong URL is not.
+    reset();
+    statusPayload = {
+      generation: {
+        status: "completed",
+        results: { thumbnailUrl: "https://cdn.test/miniatura.jpg" },
+      },
+    };
+
+    expect((await provider().getClipJobStatus("job-7")).videoUrl).toBeUndefined();
   });
 });
 

@@ -72,7 +72,17 @@ const START_FRAME_ROLE = "start_image";
  * The catalogue moves, so it is a configurable field with this as the
  * fallback; the server's own guidance points here for image-driven work.
  */
-const DEFAULT_MODEL = "seedance_2_5";
+/**
+ * The model used when nobody has chosen one.
+ *
+ * It has to be one that animates a **starting photograph**, and that is a
+ * narrower set than "video models": the previous default here defaulted to
+ * text-to-video and rejected the photo outright —
+ * `mode 't2v' does not accept reference media` — so every single clip failed
+ * with a validation error. This one is verified end to end, from uploaded
+ * photograph to finished MP4.
+ */
+const DEFAULT_MODEL = "seedance1_5";
 
 /**
  * Model descriptions, cached per server and model.
@@ -227,7 +237,57 @@ function pick(payload: unknown, keys: readonly string[], depth = 0): unknown {
 const JOB_ID_KEYS = ["jobId", "job_id", "id", "generation_id"] as const;
 const MEDIA_ID_KEYS = ["media_id", "mediaId", "id"] as const;
 const STATUS_KEYS = ["status", "state", "job_status"] as const;
-const VIDEO_KEYS = ["video_url", "videoUrl", "url", "output_url", "result_url"] as const;
+const VIDEO_KEYS = [
+  "rawUrl",
+  "raw_url",
+  "video_url",
+  "videoUrl",
+  "output_url",
+  "result_url",
+  "url",
+] as const;
+
+/** Where a finished result hides, depending on the server. */
+const RESULT_CONTAINERS = ["results", "result", "output", "outputs"] as const;
+
+/** A still image is never the answer to "where is the video". */
+const IMAGE_URL = /\.(jpe?g|png|webp|gif|avif|heic)(\?|$)/i;
+
+/**
+ * The finished video's URL.
+ *
+ * Searched inside the result container, and **never** in `params` — which is
+ * the bug this replaces. The status response echoes the request back, start
+ * image included, so a blind deep search for `url` found the source photograph
+ * before it ever reached the video. Every clip came back `completed` pointing
+ * at its own JPEG: the reel played a slideshow and the downloadable file would
+ * have failed on a still.
+ *
+ * Anything that still looks like an image is refused for the same reason. A
+ * clip with no URL is visibly incomplete; a clip with the wrong one is not.
+ */
+function findVideoUrl(payload: unknown): string | undefined {
+  const wrapper = payload as { generation?: unknown } | undefined;
+  const record = (wrapper?.generation ?? payload) as Record<string, unknown> | undefined;
+
+  if (!record || typeof record !== "object") return undefined;
+
+  const usable = (value: unknown): value is string =>
+    typeof value === "string" && value.trim().length > 0 && !IMAGE_URL.test(value);
+
+  for (const container of RESULT_CONTAINERS) {
+    const found = pick(record[container], VIDEO_KEYS);
+    if (usable(found)) return found;
+  }
+
+  // Some servers put it at the top level. `params` stays excluded: that is
+  // where the request — and the start image — is echoed back.
+  const { params, ...rest } = record;
+  void params;
+
+  const found = pick(rest, VIDEO_KEYS);
+  return usable(found) ? found : undefined;
+}
 const PROGRESS_KEYS = ["progress", "percent", "percentage"] as const;
 
 /**
@@ -259,12 +319,18 @@ function classifyToolError(tool: string, detail: string): ProviderError {
     return new ProviderError("rate_limited", `${tool}: ${detail}`);
   }
 
-  // Anything the tool calls invalid, unsupported or unknown is about *this*
-  // input and will be just as invalid on the second attempt.
+  // A model that refuses these parameters will refuse them again. The wording
+  // that matters here is a validation failure — `params failed validation`,
+  // `422`, `value error` — which is how a model says the request was never
+  // going to work, most often because it does not animate a starting image.
   if (
+    text.includes("failed validation") ||
+    text.includes("value error") ||
+    text.includes("422") ||
     text.includes("invalid") ||
     text.includes("unsupported") ||
     text.includes("not allowed") ||
+    text.includes("does not accept") ||
     text.includes("must be")
   ) {
     return new ProviderError("invalid_input", `${tool}: ${detail}`);
@@ -701,8 +767,7 @@ function createProvider(config: PluginConfig): VideoProvider {
       }
 
       const reported = normalizeStatus(pick(payload, STATUS_KEYS));
-      const videoUrl = pick(payload, VIDEO_KEYS);
-      const url = typeof videoUrl === "string" ? videoUrl : undefined;
+      const url = findVideoUrl(payload);
 
       // A finished job with no file is a broken contract, not a success — as
       // with the REST provider, treat it as retryable rather than letting a
