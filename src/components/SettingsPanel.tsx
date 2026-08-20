@@ -316,14 +316,14 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
               <Toggle
                 label="Cartón final"
                 hint="Cierra el vídeo con el nombre y el contacto."
-                checked={brand.endCard}
+                checked={brand.endCard ?? false}
                 disabled={busy}
                 onChange={(endCard) => saveBrand({ endCard })}
               />
               <Toggle
                 label="Marca de agua"
                 hint="Logotipo discreto en una esquina durante todo el vídeo."
-                checked={brand.watermark}
+                checked={brand.watermark ?? false}
                 disabled={busy || !brand.logoUrl}
                 onChange={(watermark) => saveBrand({ watermark })}
               />

@@ -228,14 +228,34 @@ export function getBrand(): BrandSettings {
   return { ...settings.brand };
 }
 
-/** Merge a partial update, so the panel can save one field at a time. */
+/**
+ * Merge a partial update, so the panel can save one field at a time.
+ *
+ * A key that is `undefined` means "not mentioned", never "clear it". That
+ * distinction is the whole function: the settings route sends every field on
+ * every save, so spreading the patch wholesale wrote `undefined` over the
+ * others — pressing "Guardar marca" after typing an agency name silently
+ * switched off the closing card and the watermark, and left the toggles with
+ * an undefined `checked`, which React rightly complains about.
+ */
 export function setBrand(patch: Partial<BrandSettings>): BrandSettings {
-  settings.brand = {
-    ...settings.brand,
-    ...patch,
-    agencyName: (patch.agencyName ?? settings.brand.agencyName)?.trim() || undefined,
-    contact: (patch.contact ?? settings.brand.contact)?.trim() || undefined,
-  };
+  const next: BrandSettings = { ...settings.brand };
+
+  // Blank is different from absent: an empty box is someone clearing a field,
+  // and an empty closing card is not worth drawing.
+  if (patch.agencyName !== undefined) {
+    next.agencyName = patch.agencyName.trim() || undefined;
+  }
+  if (patch.contact !== undefined) {
+    next.contact = patch.contact.trim() || undefined;
+  }
+  if (patch.logoUrl !== undefined) {
+    next.logoUrl = patch.logoUrl.trim() || undefined;
+  }
+  if (patch.endCard !== undefined) next.endCard = patch.endCard;
+  if (patch.watermark !== undefined) next.watermark = patch.watermark;
+
+  settings.brand = next;
   return getBrand();
 }
 

@@ -149,6 +149,33 @@ describe("brand", () => {
     expect(brand).toMatchObject({ agencyName: "Fincas del Mar", endCard: true });
   });
 
+  it("keeps the switches when only the name is saved", () => {
+    // The settings route sends every field on every save, with `undefined` for
+    // the untouched ones. Spreading that wholesale turned the closing card off
+    // whenever somebody edited the agency name — silently, and after they had
+    // already checked the box.
+    setBrand({ endCard: true, watermark: true });
+    const brand = setBrand({ agencyName: "Fincas del Mar", contact: undefined });
+
+    expect(brand).toMatchObject({
+      agencyName: "Fincas del Mar",
+      endCard: true,
+      watermark: true,
+    });
+  });
+
+  it("never leaves a switch undefined, which React reads as uncontrolled", () => {
+    const brand = setBrand({ agencyName: "Fincas", endCard: undefined });
+
+    expect(brand.endCard).toBe(false);
+    expect(brand.watermark).toBe(false);
+  });
+
+  it("lets a switch be turned off on purpose", () => {
+    setBrand({ endCard: true });
+    expect(setBrand({ endCard: false }).endCard).toBe(false);
+  });
+
   it("treats blank input as absent, so no empty card is drawn", () => {
     expect(setBrand({ agencyName: "   " }).agencyName).toBeUndefined();
   });
