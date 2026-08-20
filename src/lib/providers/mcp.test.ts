@@ -564,6 +564,30 @@ describe("what a tool refuses", () => {
   });
 });
 
+describe("a model that cannot do the job", () => {
+  it("warns instead of reporting a healthy connection", async () => {
+    // A stale id left in the settings authorised, connected and verified
+    // cleanly, then failed every single clip. Connecting is the moment to
+    // notice, not the tenth photograph.
+    reset();
+    const verification = await higgsfieldMcpPlugin
+      .create({ url, model: "no-existe" })
+      .verifyCredentials!();
+
+    expect(verification).toMatchObject({ ok: true, verified: false });
+    expect(verification.message).toContain("no-existe");
+  });
+
+  it("confirms a model that is in the catalogue", async () => {
+    reset();
+    const verification = await higgsfieldMcpPlugin
+      .create({ url, model: "cine" })
+      .verifyCredentials!();
+
+    expect(verification).toMatchObject({ ok: true, verified: true });
+  });
+});
+
 describe("finding the finished video", () => {
   it("takes the result, not the photograph echoed back in params", async () => {
     // The status response repeats the request, start image included. A blind

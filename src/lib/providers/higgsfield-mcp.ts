@@ -622,6 +622,33 @@ function createProvider(config: PluginConfig): VideoProvider {
           };
         }
 
+        /*
+         * The model is checked, not assumed. A configured id that does not
+         * animate a starting photograph is accepted by the server and then
+         * fails every single clip with a validation error — which is exactly
+         * what happened with a stale `seedance_2_5` left behind in the
+         * settings: authorised, connected, verified, and unable to render
+         * anything at all.
+         *
+         * A warning rather than a refusal: the catalogue may be unreachable,
+         * or may simply not describe a model that works fine.
+         */
+        const catalogue = await this.listModels!().catch(() => []);
+
+        if (catalogue.length > 0) {
+          const chosen = catalogue.find((entry) => entry.id === model);
+
+          if (!chosen) {
+            return {
+              ok: true,
+              verified: false,
+              message:
+                `Conectado, pero «${model}» no está entre los modelos que animan ` +
+                "una fotografía. Elige uno de la lista o los clips fallarán.",
+            };
+          }
+        }
+
         return {
           ok: true,
           verified: true,
