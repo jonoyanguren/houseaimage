@@ -183,6 +183,16 @@ beforeAll(async () => {
               items: [
                 ...(catalogExtra ? [catalogExtra] : []),
                 {
+                  // The real default, so connecting with nothing chosen looks
+                  // here like it does against the real catalogue.
+                  id: "seedance1_5",
+                  name: "Seedance 1.5 Pro",
+                  provider_name: "Bytedance",
+                  medias: [{ type: "image", roles: ["start_image", "end_image"] }],
+                  parameters: [{ name: "duration", options: [4, 8, 12], default: 4 }],
+                  aspect_ratios: ["16:9", "9:16"],
+                },
+                {
                   id: "cine",
                   name: "Cinema Studio",
                   provider_name: "Higgsfield",
@@ -377,9 +387,12 @@ describe("higgsfield-mcp plugin", () => {
     const submit = calls.find((c) => c.tool === "generate_video")!;
     const params = (submit.args as { params: Record<string, unknown> }).params;
     expect(params).toMatchObject({
+      model: "seedance1_5",
       prompt: resolved.prompt,
       aspect_ratio: "16:9",
-      duration: 7,
+      // The style asks for seven seconds and this model only renders 4, 8 or
+      // 12, so it is rounded here — with the same arithmetic the estimate uses.
+      duration: 8,
       medias: [{ role: "start_image", value: "media-42" }],
     });
   });
@@ -633,12 +646,17 @@ describe("the catalogue", () => {
     reset();
     const models = await provider().listModels!();
 
-    expect(models.map((m) => m.id)).toEqual(["cine", "rango"]);
+    expect(models.map((m) => m.id)).toContain("cine");
+    expect(models.map((m) => m.id)).toContain("rango");
+    // The one that turns a YouTube URL into clips is a video model and cannot
+    // do the one thing this app does.
+    expect(models.map((m) => m.id)).not.toContain("clipify");
   });
 
   it("keeps what a chooser needs to show", async () => {
     reset();
-    const [cine] = await provider().listModels!();
+    const models = await provider().listModels!();
+    const cine = models.find((m) => m.id === "cine");
 
     expect(cine).toMatchObject({
       label: "Cinema Studio",
